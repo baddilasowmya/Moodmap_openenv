@@ -1,114 +1,146 @@
-from fastapi import FastAPI, Body
-from typing import Optional, Dict, Any
-import uuid
-import random
+"""
+MoodMap Passive Mental Health — OpenEnv REST API
+Endpoints follow the OpenEnv spec:
+  POST /reset   → start a new episode
+  POST /step    → submit an action, get reward
+  GET  /health  → health check
+  GET  /        → dashboard HTML
+"""
+import os
+import json
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+from typing import Optional
 
-app = FastAPI(title="MoodMap Passive Mental Health Environment")
+from moodmap_env import MoodMapEnv
+from moodmap_env.models import AgentAction
+from graders import grade
 
-# -------- MOCK ENV (replace with your real env if needed) -------- #
+app = FastAPI(
+    title="MoodMap Passive Mental Health Environment",
+    description="An RL environment for passive mental health monitoring via behavioral signals.",
+    version="1.0.0",
+)
 
-sessions = {}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def generate_observation():
-    return {
-        "patient_id": f"PT-{uuid.uuid4().hex[:8].upper()}",
-        "timestamp": "2026-04-08T00:00:00",
-        "age": random.randint(18, 70),
-        "gender": random.choice(["male", "female", "non-binary"]),
-        "baseline_mood_score": round(random.uniform(0.3, 0.8), 3),
-        "signals": [],
-        "history_days": random.randint(10, 100),
-        "prior_episodes": random.randint(0, 5),
-        "medication_adherence": round(random.uniform(0.3, 0.9), 3),
-        "task": "triage",
-        "difficulty": "easy"
-    }
+# In-memory session store (stateless per Hugging Face Spaces restart)
+_sessions: dict[str, MoodMapEnv] = {}
 
-# -------- ROUTES -------- #
 
-@app.get("/")
-def home():
-    return {"message": "MoodMap API running"}
+class ResetRequest(BaseModel):
+    task: str = Field("triage", description="One of: triage, risk_stratification, early_warning")
+    difficulty: str = Field("easy", description="One of: easy, medium, hard")
+    max_steps: int = Field(5, ge=1, le=20)
+
+    model_config = {"extra": "ignore"}
+
+
+class StepRequest(BaseModel):
+    session_id: str
+    patient_id: str
+    risk_score: float = Field(..., ge=0.0, le=1.0)
+    recommended_intervention: str
+    urgency_level: str
+    reasoning: str
+    confidence: float = Field(..., ge=0.0, le=1.0)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard():
+    """Serve the live ICU-style dashboard"""
+    try:
+        with open("dashboard.html", "r") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse("<h1>MoodMap API is running. Dashboard not found.</h1>")
+
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+async def health():
+    return {"status": "ok", "service": "moodmap-openenv", "version": "1.0.0"}
+
 
 @app.get("/info")
-def info():
-    return {"env": "MoodMap", "version": "1.0"}
-
-# ✅ FIXED RESET (IMPORTANT)
-@app.post("/reset")
-def reset(body: Optional[Dict[str, Any]] = Body(default=None)):
-    session_id = f"sess-{uuid.uuid4().hex[:12]}"
-    episode_id = f"EP-{uuid.uuid4().hex[:10].upper()}"
-
-    observation = generate_observation()
-
-    sessions[session_id] = {
-        "step": 0.1,
-        "max_steps": 5,
-        "episode_id": episode_id,
-        "last_observation": observation
-    }
-
+async def info():
     return {
-        "session_id": session_id,
-        "episode_id": episode_id,
-        "observation": observation,
-        "task": "triage",
-        "difficulty": "easy",
-        "step": 0.2,
-        "max_steps": 5
-    }
-
-# ✅ STEP
-@app.post("/step")
-def step(body: Dict[str, Any]):
-    session_id = body.get("session_id")
-    patient_id = body.get("patient_id")
-
-    if session_id not in sessions:
-        return {"error": "Invalid session_id"}
-
-    session = sessions[session_id]
-    session["step"] += 1
-
-    # fake reward logic
-    reward = round(random.uniform(0.2, 0.9), 4)
-
-    next_obs = generate_observation()
-
-    done = session["step"] >= session["max_steps"]
-
-    return {
-        "episode_id": session["episode_id"],
-        "step": session["step"],
-        "observation": session["last_observation"],
-        "action": body,
-        "reward": reward,
-        "done": done,
-        "next_observation": next_obs,
-        "info": {
-            "task": "triage",
-            "difficulty": "easy"
+        "name": "MoodMap Passive Mental Health Environment",
+        "tasks": ["triage", "risk_stratification", "early_warning"],
+        "difficulties": ["easy", "medium", "hard"],
+        "reward_range": [0.05, 0.95],
+        "reward_components": ["detection", "intervention", "timeliness", "harm_avoidance"],
+        "observation_space": {
+            "type": "structured",
+            "fields": [
+                "patient_id", "age", "gender", "baseline_mood_score",
+                "signals.sleep_hours", "signals.activity_steps",
+                "signals.screen_time_hours", "signals.social_interactions",
+                "signals.heart_rate_variability", "signals.app_usage_variance",
+                "signals.typing_speed_change", "signals.location_entropy",
+                "history_days", "prior_episodes", "medication_adherence"
+            ]
         },
-        "grader_score": {
-            "score": round(random.uniform(0.1, 1.0), 3)
+        "action_space": {
+            "type": "structured",
+            "fields": ["risk_score", "recommended_intervention", "urgency_level", "reasoning", "confidence"]
         }
     }
 
+
+@app.post("/reset")
+async def reset(req: Optional[ResetRequest] = None):
+    import uuid
+    if req is None:
+        req = ResetRequest()
+    env = MoodMapEnv(task=req.task, difficulty=req.difficulty, max_steps=req.max_steps)
+    state = env.reset()
+    session_id = f"sess-{uuid.uuid4().hex[:12]}"
+    _sessions[session_id] = env
+    return {"session_id": session_id, **state}
+
+
+@app.post("/step")
+async def step(req: StepRequest):
+    env = _sessions.get(req.session_id)
+    if env is None:
+        raise HTTPException(status_code=404, detail=f"Session '{req.session_id}' not found. Call /reset first.")
+
+    action = AgentAction(
+        patient_id=req.patient_id,
+        risk_score=req.risk_score,
+        recommended_intervention=req.recommended_intervention,
+        urgency_level=req.urgency_level,
+        reasoning=req.reasoning,
+        confidence=req.confidence,
+    )
+
+    result = env.step(action)
+
+    # Also run task-specific grader
+    grader_result = grade(
+        task=env.task,
+        action=action.model_dump(),
+        ground_truth={
+            "true_risk": result["reward_breakdown"].get("true_risk", req.risk_score),
+            "ideal_intervention": result["reward_breakdown"].get("ideal_intervention", req.recommended_intervention),
+        }
+    )
+    result["grader_score"] = grader_result
+
+    if result["done"]:
+        result["episode_summary"] = env.get_episode_summary()
+        del _sessions[req.session_id]
+
+    return result
+
+
 @app.get("/sessions")
-def list_sessions():
-    return {"sessions": list(sessions.keys())}
-
-
-# ✅ REQUIRED FOR OPENENV
-def main():
-    import uvicorn
-    uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
-
-
-if __name__ == "__main__":
-    main()
+async def list_sessions():
+    return {"active_sessions": len(_sessions), "session_ids": list(_sessions.keys())}
