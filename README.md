@@ -1,3 +1,11 @@
+---
+title: MoodMap Env
+emoji: 🌍
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
 # MoodMap — Passive Mental Health OpenEnv
 
 A reinforcement learning environment where an LLM agent analyzes **passively collected behavioral signals** (sleep, activity, screen time, HRV, social interactions) to assess patient mental health risk and recommend appropriate interventions.
