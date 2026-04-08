@@ -97,22 +97,17 @@ async def info():
 
 @app.post("/reset")
 async def reset(request: Request):
-    """Reset endpoint — accepts empty body, null, or JSON with optional fields."""
+    import uuid, json
     try:
         body = await request.body()
-        if body and len(body.strip()) > 0 and body.strip() not in (b"null", b"{}"):
+        if body and body.strip() not in (b"", b"null", b"{}"):
             data = json.loads(body)
             req = ResetRequest(**(data if isinstance(data, dict) else {}))
         else:
             req = ResetRequest()
     except Exception:
         req = ResetRequest()
-
     env = MoodMapEnv(task=req.task, difficulty=req.difficulty, max_steps=req.max_steps)
-    state = env.reset()
-    session_id = f"sess-{uuid.uuid4().hex[:12]}"
-    _sessions[session_id] = env
-    return {"session_id": session_id, **state}
 
 
 @app.post("/step")
