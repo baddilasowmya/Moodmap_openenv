@@ -1,0 +1,88 @@
+name: moodmap-passive-mental-health
+version: "1.0.0"
+description: >
+  A passive mental health monitoring environment where an LLM agent analyzes
+  behavioral signals (sleep, activity, screen time, HRV, social interactions)
+  collected passively from smartphones and wearables to assess patient risk
+  and recommend appropriate interventions.
+
+tasks:
+  - id: triage
+    difficulty: easy
+    description: >
+      Prioritize patients by urgency based on clear behavioral signal patterns.
+      Signals have low noise and clear risk indicators.
+    reward_range: [0.05, 0.95]
+
+  - id: risk_stratification
+    difficulty: medium
+    description: >
+      Classify patients into risk tiers using noisy, partially conflicting signals.
+      Requires nuanced interpretation of behavioral drift patterns.
+    reward_range: [0.05, 0.95]
+
+  - id: early_warning
+    difficulty: hard
+    description: >
+      Detect early deterioration before it becomes critical. High noise, 
+      limited history, and subtle signal changes require careful analysis.
+    reward_range: [0.05, 0.95]
+
+reward:
+  range: [0.05, 0.95]
+  components:
+    - name: detection
+      description: How close is the predicted risk score to the true risk?
+    - name: intervention
+      description: Is the recommended intervention appropriate for the risk level?
+    - name: timeliness
+      description: Does the urgency level match the true risk?
+    - name: harm_avoidance
+      description: Penalizes dangerous errors (false negatives for high-risk, over-escalation for low-risk)
+
+observation_space:
+  type: structured_json
+  fields:
+    - patient_id
+    - age
+    - gender
+    - baseline_mood_score
+    - signals.sleep_hours
+    - signals.activity_steps
+    - signals.screen_time_hours
+    - signals.social_interactions
+    - signals.heart_rate_variability
+    - signals.app_usage_variance
+    - signals.typing_speed_change
+    - signals.location_entropy
+    - history_days
+    - prior_episodes
+    - medication_adherence
+
+action_space:
+  type: structured_json
+  fields:
+    - risk_score (float, 0.05–0.95)
+    - recommended_intervention (categorical)
+    - urgency_level (low/medium/high/critical)
+    - reasoning (free text)
+    - confidence (float, 0.05–0.95)
+
+api:
+  reset: POST /reset
+  step: POST /step
+  health: GET /health
+  info: GET /info
+
+requirements:
+  - Python 3.10+
+  - See requirements.txt
+
+env_vars:
+  - API_BASE_URL: LLM API base URL (required)
+  - MODEL_NAME: Model identifier (required)
+  - HF_TOKEN: Hugging Face token (required, no default)
+  - LOCAL_IMAGE_NAME: Optional, for from_docker_image()
+
+author: MoodMap Team
+license: Apache-2.0

@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoodMap — Passive Mental Health Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #060a0f;
+    --surface: #0d1520;
+    --surface2: #121d2e;
+    --border: #1a2d45;
+    --accent-cyan: #00e5ff;
+    --accent-green: #00ff88;
+    --accent-amber: #ffb800;
+    --accent-red: #ff3d5a;
+    --accent-purple: #b44fff;
+    --text: #c8dff0;
+    --text-muted: #5a7a99;
+    --text-dim: #2a4a66;
+    --risk-low: #00ff88;
+    --risk-med: #ffb800;
+    --risk-high: #ff6b35;
+    --risk-crit: #ff3d5a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Grid noise overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.015) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.015) 1px, transparent 1px);
+    background-size: 32px 32px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Scanline effect */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.04) 2px,
+      rgba(0,0,0,0.04) 4px
+    );
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 28px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(6,10,15,0.92);
+    backdrop-filter: blur(12px);
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    position: relative;
+  }
+
+  .logo-icon svg { width: 36px; height: 36px; }
+
+  .logo-text {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.3rem;
+    letter-spacing: -0.02em;
+  }
+
+  .logo-text span { color: var(--accent-cyan); }
+
+  .logo-sub {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  .header-stats {
+    display: flex;
+    gap: 28px;
+    align-items: center;
+  }
+
+  .hstat {
+    text-align: right;
+  }
+
+  .hstat-val {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    font-family: 'Syne', sans-serif;
+  }
+
+  .hstat-label {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    box-shadow: 0 0 8px var(--accent-green);
+    animation: pulse-dot 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.7); }
+  }
+
+  .live-badge {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    color: var(--accent-green);
+    text-transform: uppercase;
+  }
+
+  /* ── LAYOUT ── */
+  .main {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    height: calc(100vh - 69px);
+  }
+
+  /* ── TASK SELECTOR ── */
+  .task-bar {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13,21,32,0.8);
+    flex-wrap: wrap;
+  }
+
+  .task-label {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-right: 4px;
+  }
+
+  .task-btn {
+    padding: 5px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.04em;
+  }
+
+  .task-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
+  .task-btn.active { background: rgba(0,229,255,0.1); border-color: var(--accent-cyan); color: var(--accent-cyan); }
+
+  .diff-btn {
+    padding: 5px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .diff-btn:hover { border-color: var(--accent-amber); color: var(--accent-amber); }
+  .diff-btn.active { background: rgba(255,184,0,0.08); border-color: var(--accent-amber); color: var(--accent-amber); }
+
+  .sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
+
+  .run-btn {
+    margin-left: auto;
+    padding: 7px 22px;
+    border-radius: 4px;
+    border: none;
+    background: linear-gradient(135deg, var(--accent-cyan), #0088ff);
+    color: #000;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .run-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(0,229,255,0.3); }
+  .run-btn:active { transform: translateY(0); }
+  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+  /* ── PATIENT GRID ── */
+  .patient-area {
+    overflow-y: auto;
+    padding: 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .patient-area::-webkit-scrollbar { width: 4px; }
+  .patient-area::-webkit-scrollbar-track { background: transparent; }
+  .patient-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+
+  .patient-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+    animation: slide-in 0.4s ease-out;
+  }
+
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .patient-card:hover { border-color: var(--accent-cyan); }
+
+  .patient-card::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    border-radius: 8px 0 0 8px;
+  }
+
+  .risk-low .patient-card::before { background: var(--risk-low); }
+  .risk-medium .patient-card::before { background: var(--risk-med); }
+  .risk-high .patient-card::before { background: var(--risk-high); }
+  .risk-critical .patient-card::before { background: var(--risk-crit); box-shadow: 0 0 12px var(--risk-crit); }
+
+  .card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .patient-id {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent-cyan);
+  }
+
+  .patient-meta {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .risk-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .risk-score-display {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.4rem;
+  }
+
+  .risk-label {
+    font-size: 0.58rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-align: right;
+    line-height: 1.3;
+  }
+
+  /* Signal bars */
+  .signals-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px 16px;
+    margin-bottom: 12px;
+  }
+
+  .signal-row {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .signal-label {
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .signal-val { color: var(--text); }
+
+  .signal-bar {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .signal-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+
+  .card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+    font-size: 0.65rem;
+  }
+
+  .intervention-tag {
+    padding: 3px 10px;
+    border-radius: 3px;
+    background: rgba(0,229,255,0.08);
+    border: 1px solid rgba(0,229,255,0.2);
+    color: var(--accent-cyan);
+    font-size: 0.62rem;
+    letter-spacing: 0.05em;
+  }
+
+  .reward-display {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .reward-val {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+
+  .reward-label {
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* Urgency badge */
+  .urgency-badge {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.6rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+
+  .urg-low { background: rgba(0,255,136,0.1); color: var(--risk-low); }
+  .urg-medium { background: rgba(255,184,0,0.1); color: var(--risk-med); }
+  .urg-high { background: rgba(255,107,53,0.1); color: var(--risk-high); }
+  .urg-critical { background: rgba(255,61,90,0.12); color: var(--risk-crit); animation: blink-crit 1.2s infinite; }
+
+  @keyframes blink-crit {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* ── RIGHT PANEL ── */
+  .right-panel {
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: rgba(13,21,32,0.6);
+  }
+
+  /* Leaderboard */
+  .panel-section {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .panel-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .leaderboard-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(26,45,69,0.5);
+    font-size: 0.7rem;
+    transition: background 0.2s;
+  }
+
+  .leaderboard-row:last-child { border-bottom: none; }
+
+  .lb-rank {
+    width: 18px;
+    text-align: center;
+    color: var(--text-muted);
+    font-weight: 700;
+    font-size: 0.65rem;
+  }
+
+  .lb-rank.first { color: var(--accent-amber); }
+  .lb-rank.second { color: #aaa; }
+  .lb-rank.third { color: #8b6914; }
+
+  .lb-name { flex: 1; color: var(--text); }
+  .lb-task { color: var(--text-muted); font-size: 0.6rem; }
+  .lb-score { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--accent-green); }
+
+  /* Live log */
+  .log-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 16px 18px;
+  }
+
+  .log-container {
+    flex: 1;
+    overflow-y: auto;
+    font-size: 0.65rem;
+    line-height: 1.7;
+    color: var(--text-muted);
+  }
+
+  .log-container::-webkit-scrollbar { width: 3px; }
+  .log-container::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .log-line { padding: 1px 0; }
+  .log-line.start { color: var(--accent-green); font-weight: 600; }
+  .log-line.step { color: var(--accent-cyan); }
+  .log-line.end { color: var(--accent-amber); font-weight: 600; }
+  .log-line.warn { color: var(--accent-red); }
+  .log-line.info { color: var(--text-muted); }
+
+  /* Stats row */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .stat-cell {
+    padding: 12px 16px;
+    border-right: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .stat-cell:last-child { border-right: none; }
+
+  .stat-v {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--accent-cyan);
+  }
+
+  .stat-l {
+    font-size: 0.57rem;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+
+  /* Empty state */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    gap: 14px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+
+  .empty-state svg { opacity: 0.3; }
+
+  .empty-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    color: var(--text-muted);
+  }
+
+  .empty-sub { font-size: 0.7rem; }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent-cyan);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Progress bar */
+  .progress-bar {
+    height: 2px;
+    background: var(--border);
+    border-radius: 1px;
+    overflow: hidden;
+    margin: 8px 0;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  /* Reward breakdown mini */
+  .breakdown-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.6rem;
+    margin-top: 4px;
+  }
+
+  .bd-label { color: var(--text-muted); width: 72px; flex-shrink: 0; }
+
+  .bd-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .bd-fill { height: 100%; border-radius: 2px; }
+  .bd-val { color: var(--text); width: 38px; text-align: right; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">
+      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="18" cy="18" r="17" stroke="#00e5ff" stroke-width="1.5" opacity="0.4"/>
+        <path d="M6 18 Q9 10 12 18 Q15 26 18 14 Q21 2 24 18 Q27 26 30 18" stroke="#00e5ff" stroke-width="2" fill="none" stroke-linecap="round"/>
+        <circle cx="18" cy="18" r="2" fill="#00ff88"/>
+      </svg>
+    </div>
+    <div>
+      <div class="logo-text">Mood<span>Map</span></div>
+      <div class="logo-sub">Passive Mental Health Monitor</div>
+    </div>
+  </div>
+  <div class="header-stats">
+    <div class="hstat">
+      <div class="hstat-val" id="h-patients">0</div>
+      <div class="hstat-label">Patients</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-val" id="h-mean-reward">—</div>
+      <div class="hstat-label">Mean Reward</div>
+    </div>
+    <div class="hstat">
+      <div class="hstat-val" id="h-episodes">0</div>
+      <div class="hstat-label">Episodes</div>
+    </div>
+    <div class="live-badge">
+      <div class="status-dot"></div>
+      LIVE
+    </div>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- Task bar -->
+  <div class="task-bar">
+    <span class="task-label">Task:</span>
+    <button class="task-btn active" data-task="triage">triage</button>
+    <button class="task-btn" data-task="risk_stratification">risk_stratification</button>
+    <button class="task-btn" data-task="early_warning">early_warning</button>
+    <div class="sep"></div>
+    <span class="task-label">Difficulty:</span>
+    <button class="diff-btn active" data-diff="easy">easy</button>
+    <button class="diff-btn" data-diff="medium">medium</button>
+    <button class="diff-btn" data-diff="hard">hard</button>
+    <div class="sep"></div>
+    <span class="task-label">Steps:</span>
+    <select id="steps-select" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:0.72rem;cursor:pointer;">
+      <option value="3">3</option>
+      <option value="5" selected>5</option>
+      <option value="8">8</option>
+      <option value="10">10</option>
+    </select>
+    <button class="run-btn" id="run-btn">▶ Run Episode</button>
+  </div>
+
+  <!-- Stats row spanning full width -->
+  <div class="stats-row" style="grid-column:1/-1;">
+    <div class="stat-cell">
+      <div class="stat-v" id="stat-total-episodes">0</div>
+      <div class="stat-l">Total Episodes</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-v" id="stat-mean">—</div>
+      <div class="stat-l">Avg Reward</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-v" id="stat-best">—</div>
+      <div class="stat-l">Best Step</div>
+    </div>
+    <div class="stat-cell">
+      <div class="stat-v" id="stat-detected">0</div>
+      <div class="stat-l">High-Risk Caught</div>
+    </div>
+  </div>
+
+  <!-- Patient cards -->
+  <div class="patient-area" id="patient-area">
+    <div class="empty-state" id="empty-state">
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+        <circle cx="24" cy="24" r="22" stroke="#00e5ff" stroke-width="1.5"/>
+        <path d="M8 24 Q12 14 16 24 Q20 34 24 18 Q28 2 32 24 Q36 30 40 24" stroke="#00e5ff" stroke-width="2" fill="none" stroke-linecap="round"/>
+      </svg>
+      <div class="empty-title">No patients loaded</div>
+      <div class="empty-sub">Select task & difficulty, then click Run Episode</div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div class="right-panel">
+
+    <!-- Leaderboard -->
+    <div class="panel-section">
+      <div class="panel-title">⬆ Episode Leaderboard</div>
+      <div id="leaderboard">
+        <div style="font-size:0.65rem;color:var(--text-dim);text-align:center;padding:12px 0;">No episodes yet</div>
+      </div>
+    </div>
+
+    <!-- Live log -->
+    <div class="log-section">
+      <div class="panel-title">⚡ Live Log</div>
+      <div class="log-container" id="log-container">
+        <div class="log-line info">// MoodMap v1.0.0 — OpenEnv environment ready</div>
+        <div class="log-line info">// Click "Run Episode" to begin</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────
+const state = {
+  task: 'triage',
+  difficulty: 'easy',
+  steps: 5,
+  sessionId: null,
+  currentStep: 0,
+  maxSteps: 5,
+  running: false,
+  totalEpisodes: 0,
+  allRewards: [],
+  highRiskCaught: 0,
+  leaderboard: [],
+  patientCards: [],
+};
+
+// ── API helpers ───────────────────────────────────────────────────────────
+const API = window.location.origin;
+
+async function apiReset(task, difficulty, maxSteps) {
+  const r = await fetch(`${API}/reset`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({task, difficulty, max_steps: maxSteps}),
+  });
+  return r.json();
+}
+
+async function apiStep(sessionId, obs, action) {
+  const r = await fetch(`${API}/step`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      session_id: sessionId,
+      patient_id: obs.patient_id,
+      risk_score: action.risk_score,
+      recommended_intervention: action.recommended_intervention,
+      urgency_level: action.urgency_level,
+      reasoning: action.reasoning,
+      confidence: action.confidence,
+    }),
+  });
+  return r.json();
+}
+
+// ── Simulated LLM agent (demo mode — no real API key needed) ──────────────
+function simulateAgent(obs) {
+  const s = obs.signals;
+  
+  // Heuristic risk score from signals
+  let risk = 0.0;
+  risk += Math.max(0, (7 - s.sleep_hours) / 7) * 0.20;
+  risk += Math.max(0, (5000 - s.activity_steps) / 5000) * 0.15;
+  risk += Math.min(1, s.screen_time_hours / 10) * 0.12;
+  risk += Math.max(0, (5 - s.social_interactions) / 5) * 0.15;
+  risk += Math.max(0, (50 - s.heart_rate_variability) / 50) * 0.15;
+  risk += s.app_usage_variance * 0.10;
+  risk += Math.max(0, -s.typing_speed_change) * 0.08;
+  risk += Math.max(0, 1 - s.location_entropy) * 0.05;
+  
+  // Clamp to (0.08, 0.92)
+  risk = Math.max(0.08, Math.min(0.92, risk + (Math.random() - 0.5) * 0.12));
+  risk = Math.round(risk * 1000) / 1000;
+
+  const interventions = ['no_action','psychoeducation_materials','peer_support_referral',
+    'therapist_consultation','crisis_hotline_referral','emergency_services'];
+  const urgencies = ['low','medium','high','critical'];
+
+  const iIdx = Math.min(5, Math.floor(risk * 6));
+  const uIdx = risk < 0.3 ? 0 : risk < 0.55 ? 1 : risk < 0.80 ? 2 : 3;
+
+  const confidence = Math.max(0.12, Math.min(0.90, 0.85 - Math.abs(risk - 0.5) * 0.4 + Math.random() * 0.1));
+
+  return {
+    risk_score: risk,
+    recommended_intervention: interventions[iIdx],
+    urgency_level: urgencies[uIdx],
+    reasoning: `Heuristic analysis: sleep=${s.sleep_hours.toFixed(1)}h, activity=${s.activity_steps} steps, HRV=${s.heart_rate_variability.toFixed(1)}ms. Combined risk indicators suggest ${urgencies[uIdx]} urgency.`,
+    confidence: Math.round(confidence * 1000) / 1000,
+  };
+}
+
+// ── Reward color ──────────────────────────────────────────────────────────
+function rewardColor(r) {
+  if (r >= 0.75) return 'var(--risk-low)';
+  if (r >= 0.55) return 'var(--accent-cyan)';
+  if (r >= 0.35) return 'var(--risk-med)';
+  return 'var(--risk-crit)';
+}
+
+function riskColor(r) {
+  if (r < 0.30) return 'var(--risk-low)';
+  if (r < 0.55) return 'var(--risk-med)';
+  if (r < 0.78) return 'var(--risk-high)';
+  return 'var(--risk-crit)';
+}
+
+function riskClass(r) {
+  if (r < 0.30) return 'risk-low';
+  if (r < 0.55) return 'risk-medium';
+  if (r < 0.78) return 'risk-high';
+  return 'risk-critical';
+}
+
+function urgencyClass(u) {
+  return 'urg-' + (u || 'medium').toLowerCase();
+}
+
+// ── Signal bar helpers ────────────────────────────────────────────────────
+function signalBar(val, min, max, color) {
+  const pct = Math.max(0, Math.min(100, (val - min) / (max - min) * 100));
+  return `<div class="signal-bar"><div class="signal-fill" style="width:${pct}%;background:${color}"></div></div>`;
+}
+
+// ── Render patient card ───────────────────────────────────────────────────
+function renderCard(obs, action, result) {
+  const r = action.risk_score;
+  const reward = result ? result.reward : null;
+  const bd = result ? result.reward_breakdown : null;
+
+  const s = obs.signals;
+
+  return `
+  <div class="${riskClass(r)}">
+    <div class="patient-card">
+      <div class="card-header">
+        <div>
+          <div class="patient-id">${obs.patient_id}</div>
+          <div class="patient-meta">${obs.age}y · ${obs.gender} · ${obs.history_days}d history · ${obs.prior_episodes} prior eps</div>
+          <div class="patient-meta" style="margin-top:3px">
+            <span class="urgency-badge ${urgencyClass(action.urgency_level)}">${action.urgency_level}</span>
+          </div>
+        </div>
+        <div class="risk-badge">
+          <div>
+            <div class="risk-score-display" style="color:${riskColor(r)}">${r.toFixed(2)}</div>
+            <div class="risk-label">RISK<br>SCORE</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="signals-grid">
+        <div class="signal-row">
+          <div class="signal-label"><span>Sleep</span><span class="signal-val">${s.sleep_hours.toFixed(1)}h</span></div>
+          ${signalBar(s.sleep_hours, 2, 12, s.sleep_hours < 5 ? 'var(--risk-crit)' : 'var(--risk-low)')}
+        </div>
+        <div class="signal-row">
+          <div class="signal-label"><span>Steps</span><span class="signal-val">${s.activity_steps.toLocaleString()}</span></div>
+          ${signalBar(s.activity_steps, 0, 12000, s.activity_steps < 3000 ? 'var(--risk-med)' : 'var(--risk-low)')}
+        </div>
+        <div class="signal-row">
+          <div class="signal-label"><span>Screen</span><span class="signal-val">${s.screen_time_hours.toFixed(1)}h</span></div>
+          ${signalBar(s.screen_time_hours, 0, 12, s.screen_time_hours > 7 ? 'var(--risk-high)' : 'var(--accent-cyan)')}
+        </div>
+        <div class="signal-row">
+          <div class="signal-label"><span>Social</span><span class="signal-val">${s.social_interactions}</span></div>
+          ${signalBar(s.social_interactions, 0, 12, s.social_interactions < 3 ? 'var(--risk-crit)' : 'var(--risk-low)')}
+        </div>
+        <div class="signal-row">
+          <div class="signal-label"><span>HRV</span><span class="signal-val">${s.heart_rate_variability.toFixed(0)}ms</span></div>
+          ${signalBar(s.heart_rate_variability, 10, 90, s.heart_rate_variability < 30 ? 'var(--risk-high)' : 'var(--accent-cyan)')}
+        </div>
+        <div class="signal-row">
+          <div class="signal-label"><span>Loc.Entropy</span><span class="signal-val">${s.location_entropy.toFixed(2)}</span></div>
+          ${signalBar(s.location_entropy, 0, 1, 'var(--accent-purple)')}
+        </div>
+      </div>
+
+      ${bd ? `
+      <div style="margin-bottom:10px">
+        <div class="breakdown-row"><span class="bd-label">detection</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.detection*100}%;background:var(--accent-cyan)"></div></div><span class="bd-val">${bd.detection.toFixed(3)}</span></div>
+        <div class="breakdown-row"><span class="bd-label">intervention</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.intervention*100}%;background:var(--accent-green)"></div></div><span class="bd-val">${bd.intervention.toFixed(3)}</span></div>
+        <div class="breakdown-row"><span class="bd-label">timeliness</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.timeliness*100}%;background:var(--accent-amber)"></div></div><span class="bd-val">${bd.timeliness.toFixed(3)}</span></div>
+        <div class="breakdown-row"><span class="bd-label">harm_avoid</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.harm_avoidance*100}%;background:var(--accent-purple)"></div></div><span class="bd-val">${bd.harm_avoidance.toFixed(3)}</span></div>
+      </div>
+      ` : `<div style="height:8px"></div>`}
+
+      <div class="card-footer">
+        <span class="intervention-tag">${action.recommended_intervention.replace(/_/g,' ')}</span>
+        ${reward !== null ? `
+          <div class="reward-display">
+            <span class="reward-label">reward</span>
+            <span class="reward-val" style="color:${rewardColor(reward)}">${reward.toFixed(4)}</span>
+          </div>
+        ` : '<div class="spinner"></div>'}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Log helpers ───────────────────────────────────────────────────────────
+function log(msg, type = 'info') {
+  const el = document.getElementById('log-container');
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  line.textContent = msg;
+  el.appendChild(line);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── Update stats ──────────────────────────────────────────────────────────
+function updateStats() {
+  document.getElementById('h-patients').textContent = state.patientCards.length;
+  document.getElementById('h-episodes').textContent = state.totalEpisodes;
+  document.getElementById('stat-total-episodes').textContent = state.totalEpisodes;
+  document.getElementById('stat-detected').textContent = state.highRiskCaught;
+
+  if (state.allRewards.length > 0) {
+    const mean = state.allRewards.reduce((a,b) => a+b, 0) / state.allRewards.length;
+    const best = Math.max(...state.allRewards);
+    document.getElementById('h-mean-reward').textContent = mean.toFixed(3);
+    document.getElementById('stat-mean').textContent = mean.toFixed(3);
+    document.getElementById('stat-best').textContent = best.toFixed(3);
+  }
+}
+
+// ── Leaderboard ───────────────────────────────────────────────────────────
+function updateLeaderboard(epData) {
+  state.leaderboard.push(epData);
+  state.leaderboard.sort((a,b) => b.mean - a.mean);
+  const top = state.leaderboard.slice(0, 8);
+
+  const ranks = ['first','second','third'];
+  const el = document.getElementById('leaderboard');
+  el.innerHTML = top.map((e, i) => `
+    <div class="leaderboard-row">
+      <div class="lb-rank ${ranks[i] || ''}">${i+1}</div>
+      <div style="flex:1">
+        <div class="lb-name">Ep ${e.epNum}</div>
+        <div class="lb-task">${e.task} / ${e.diff}</div>
+      </div>
+      <div class="lb-score">${e.mean.toFixed(4)}</div>
+    </div>
+  `).join('');
+}
+
+// ── MAIN RUN EPISODE ─────────────────────────────────────────────────────
+async function runEpisode() {
+  if (state.running) return;
+  state.running = true;
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ Running…';
+
+  const task = state.task;
+  const difficulty = state.difficulty;
+  const maxSteps = parseInt(document.getElementById('steps-select').value);
+
+  // Clear cards
+  const area = document.getElementById('patient-area');
+  area.innerHTML = '';
+
+  log(`────────────────────────────────────────`, 'info');
+  log(`[START] task=${task} diff=${difficulty} steps=${maxSteps}`, 'start');
+
+  // Reset
+  let resetData;
+  try {
+    resetData = await apiReset(task, difficulty, maxSteps);
+  } catch(e) {
+    log(`[ERROR] Cannot reach API: ${e.message}`, 'warn');
+    log(`Running in DEMO mode (simulated rewards)`, 'info');
+    resetData = runDemoMode(task, difficulty, maxSteps);
+    await demoRun(task, difficulty, maxSteps, area);
+    finishEpisode(btn);
+    return;
+  }
+
+  if (resetData.detail) {
+    log(`[ERROR] ${resetData.detail}`, 'warn');
+    await demoRun(task, difficulty, maxSteps, area);
+    finishEpisode(btn);
+    return;
+  }
+
+  state.sessionId = resetData.session_id;
+  state.totalEpisodes++;
+
+  let obs = resetData.observation;
+  let stepRewards = [];
+
+  for (let i = 0; i < maxSteps; i++) {
+    const action = simulateAgent(obs);
+
+    // Show card (pending)
+    const cardHtml = renderCard(obs, action, null);
+    const cardDiv = document.createElement('div');
+    cardDiv.innerHTML = cardHtml;
+    area.appendChild(cardDiv);
+    area.scrollTop = area.scrollHeight;
+
+    log(`[STEP] ${i+1}/${maxSteps} patient=${obs.patient_id} risk=${action.risk_score.toFixed(3)}`, 'step');
+
+    let result;
+    try {
+      result = await apiStep(state.sessionId, obs, action);
+    } catch(e) {
+      log(`[WARN] Step failed: ${e.message} — using demo reward`, 'warn');
+      result = { reward: Math.max(0.05, Math.min(0.95, 0.4 + Math.random() * 0.4)), reward_breakdown: { detection: 0.5, intervention: 0.5, timeliness: 0.5, harm_avoidance: 0.9 }, done: i === maxSteps-1 };
+    }
+
+    const reward = result.reward;
+    stepRewards.push(reward);
+    state.allRewards.push(reward);
+
+    if (action.risk_score > 0.70) state.highRiskCaught++;
+
+    log(`  reward=${reward.toFixed(4)} | det=${result.reward_breakdown?.detection?.toFixed(3)} int=${result.reward_breakdown?.intervention?.toFixed(3)}`, 'info');
+
+    // Update card with result
+    cardDiv.innerHTML = renderCard(obs, action, result);
+    area.scrollTop = area.scrollHeight;
+
+    state.patientCards.push({obs, action, result});
+    updateStats();
+
+    if (result.done || i === maxSteps - 1) {
+      obs = null;
+      break;
+    }
+    obs = result.next_observation || obs;
+
+    await sleep(300);
+  }
+
+  const epMean = stepRewards.reduce((a,b) => a+b, 0) / stepRewards.length;
+  const epTotal = stepRewards.reduce((a,b) => a+b, 0);
+
+  log(`[END] mean_reward=${epMean.toFixed(4)} total=${epTotal.toFixed(4)}`, 'end');
+
+  updateLeaderboard({ epNum: state.totalEpisodes, task, diff: difficulty, mean: epMean, total: epTotal });
+
+  finishEpisode(btn);
+}
+
+async function demoRun(task, difficulty, maxSteps, area) {
+  // Full demo mode — generate fake patients and rewards locally
+  const { generate_patient } = getDemoGenerator();
+  state.totalEpisodes++;
+
+  let stepRewards = [];
+
+  for (let i = 0; i < maxSteps; i++) {
+    const { obs, action } = generate_patient(task, difficulty);
+
+    const cardDiv = document.createElement('div');
+    cardDiv.innerHTML = renderCard(obs, action, null);
+    area.appendChild(cardDiv);
+    area.scrollTop = area.scrollHeight;
+
+    log(`[STEP] ${i+1}/${maxSteps} patient=${obs.patient_id} risk=${action.risk_score.toFixed(3)}`, 'step');
+
+    await sleep(400);
+
+    // Simulated reward
+    const reward = Math.max(0.06, Math.min(0.93, 0.35 + Math.random() * 0.50));
+    const bd = {
+      detection: Math.max(0.05, Math.min(0.95, reward + (Math.random()-0.5)*0.2)),
+      intervention: Math.max(0.05, Math.min(0.95, reward + (Math.random()-0.5)*0.2)),
+      timeliness: Math.max(0.05, Math.min(0.95, reward + (Math.random()-0.5)*0.2)),
+      harm_avoidance: Math.max(0.05, Math.min(0.95, 0.75 + Math.random()*0.15)),
+    };
+
+    const result = { reward, reward_breakdown: bd, done: i === maxSteps - 1 };
+
+    stepRewards.push(reward);
+    state.allRewards.push(reward);
+    if (action.risk_score > 0.70) state.highRiskCaught++;
+
+    log(`  reward=${reward.toFixed(4)}`, 'info');
+
+    cardDiv.innerHTML = renderCard(obs, action, result);
+    area.scrollTop = area.scrollHeight;
+
+    state.patientCards.push({obs, action, result});
+    updateStats();
+  }
+
+  const epMean = stepRewards.reduce((a,b)=>a+b,0)/stepRewards.length;
+  const epTotal = stepRewards.reduce((a,b)=>a+b,0);
+  log(`[END] mean_reward=${epMean.toFixed(4)} total=${epTotal.toFixed(4)}`, 'end');
+  updateLeaderboard({ epNum: state.totalEpisodes, task, diff: difficulty, mean: epMean, total: epTotal });
+}
+
+function getDemoGenerator() {
+  const INTERVENTIONS = ['no_action','psychoeducation_materials','peer_support_referral',
+    'therapist_consultation','crisis_hotline_referral','emergency_services'];
+  const URGENCIES = ['low','medium','high','critical'];
+  const GENDERS = ['male','female','non-binary'];
+
+  function rnd(lo, hi) { return lo + Math.random() * (hi - lo); }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function randId() { return 'PT-' + Math.random().toString(36).slice(2,10).toUpperCase(); }
+
+  function generate_patient(task, difficulty) {
+    const noiseMap = { easy: 0.05, medium: 0.20, hard: 0.45 };
+    const noise = noiseMap[difficulty] || 0.15;
+    const trueRisk = clamp(rnd(0.08, 0.92), 0.08, 0.92);
+
+    const n = (v, std, lo, hi) => clamp(v + (Math.random()-0.5)*std*2, lo, hi);
+
+    const obs = {
+      patient_id: randId(),
+      timestamp: new Date().toISOString(),
+      age: Math.floor(rnd(18, 65)),
+      gender: GENDERS[Math.floor(Math.random()*3)],
+      baseline_mood_score: parseFloat(n(0.7-trueRisk*0.4, noise*0.15, 0.1, 0.9).toFixed(3)),
+      history_days: Math.floor(rnd(7, 90)),
+      prior_episodes: Math.floor(trueRisk * 4 + Math.floor(rnd(0, 2))),
+      medication_adherence: Math.random() > 0.4 ? parseFloat(n(1-trueRisk*0.5, noise*0.3, 0, 1).toFixed(3)) : null,
+      task, difficulty,
+      signals: {
+        sleep_hours: parseFloat(n(8-trueRisk*4, noise*3, 2, 12).toFixed(2)),
+        activity_steps: Math.floor(n(8000-trueRisk*6000, noise*3000, 200, 15000)),
+        screen_time_hours: parseFloat(n(2+trueRisk*6, noise*2, 0.5, 12).toFixed(2)),
+        social_interactions: Math.floor(n(6-trueRisk*5, noise*3, 0, 15)),
+        heart_rate_variability: parseFloat(n(55-trueRisk*30, noise*15, 10, 100).toFixed(2)),
+        app_usage_variance: parseFloat(n(trueRisk*0.8, noise*0.3, 0, 1).toFixed(3)),
+        typing_speed_change: parseFloat(n(-trueRisk*0.6, noise*0.4, -1, 1).toFixed(3)),
+        location_entropy: parseFloat(n(1-trueRisk*0.7, noise*0.3, 0, 1).toFixed(3)),
+      }
+    };
+
+    const action = simulateAgent(obs);
+    return { obs, action };
+  }
+
+  return { generate_patient };
+}
+
+function runDemoMode(task, difficulty, maxSteps) {
+  log('[INFO] API unavailable — DEMO mode (simulated)', 'warn');
+}
+
+function finishEpisode(btn) {
+  state.running = false;
+  btn.disabled = false;
+  btn.textContent = '▶ Run Episode';
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── UI wiring ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.task-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.task-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.task = btn.dataset.task;
+  });
+});
+
+document.querySelectorAll('.diff-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.difficulty = btn.dataset.diff;
+  });
+});
+
+document.getElementById('run-btn').addEventListener('click', runEpisode);
+
+// Auto-run demo on load after 800ms
+setTimeout(() => {
+  log('// Dashboard loaded. Running demo episode…', 'info');
+  runEpisode();
+}, 800);
+</script>
+</body>
+</html>
