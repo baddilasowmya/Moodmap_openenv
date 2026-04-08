@@ -7,6 +7,7 @@ Endpoints follow the OpenEnv spec:
   GET  /        → dashboard HTML
 """
 import os
+import uuid
 import json
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -39,6 +40,8 @@ class ResetRequest(BaseModel):
     task: str = Field("triage", description="One of: triage, risk_stratification, early_warning")
     difficulty: str = Field("easy", description="One of: easy, medium, hard")
     max_steps: int = Field(5, ge=1, le=20)
+
+    model_config = {"extra": "ignore"}
 
 
 class StepRequest(BaseModel):
@@ -93,8 +96,18 @@ async def info():
 
 
 @app.post("/reset")
-async def reset(req: ResetRequest):
-    import uuid
+async def reset(request: Request):
+    """Reset endpoint — safely handles empty body, null, or valid JSON."""
+    try:
+        body = await request.body()
+        if body and body.strip() not in (b"", b"null", b"{}"):
+            data = json.loads(body)
+            req = ResetRequest(**(data if isinstance(data, dict) else {}))
+        else:
+            req = ResetRequest()
+    except Exception:
+        req = ResetRequest()
+
     env = MoodMapEnv(task=req.task, difficulty=req.difficulty, max_steps=req.max_steps)
     state = env.reset()
     session_id = f"sess-{uuid.uuid4().hex[:12]}"
