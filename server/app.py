@@ -8,19 +8,17 @@ app = FastAPI()
 def home():
     return {"message": "MoodMap Env Running 🚀"}
 
-
-# 👇 ADD THIS
+# ✅ REQUIRED INPUT MODEL
 class Input(BaseModel):
     text: str
 
+# ✅ THIS IS YOUR MISSING API
 @app.post("/predict")
 def predict(data: Input):
     return {"result": f"You said: {data.text}"}
 
-
 def main():
     uvicorn.run(app, host="0.0.0.0", port=7860)
-
 
 if __name__ == "__main__":
     main()
