@@ -13,6 +13,10 @@ tasks:
       Prioritize patients by urgency based on clear behavioral signal patterns.
       Signals have low noise and clear risk indicators.
     reward_range: [0.05, 0.95]
+    grader:
+      type: function
+      module: graders
+      function: grade_triage
 
   - id: risk_stratification
     difficulty: medium
@@ -20,13 +24,21 @@ tasks:
       Classify patients into risk tiers using noisy, partially conflicting signals.
       Requires nuanced interpretation of behavioral drift patterns.
     reward_range: [0.05, 0.95]
+    grader:
+      type: function
+      module: graders
+      function: grade_risk_stratification
 
   - id: early_warning
     difficulty: hard
     description: >
-      Detect early deterioration before it becomes critical. High noise, 
+      Detect early deterioration before it becomes critical. High noise,
       limited history, and subtle signal changes require careful analysis.
     reward_range: [0.05, 0.95]
+    grader:
+      type: function
+      module: graders
+      function: grade_early_warning
 
 reward:
   range: [0.05, 0.95]
@@ -62,11 +74,11 @@ observation_space:
 action_space:
   type: structured_json
   fields:
-    - risk_score (float, 0.05–0.95)
+    - risk_score (float, 0.05-0.95)
     - recommended_intervention (categorical)
     - urgency_level (low/medium/high/critical)
     - reasoning (free text)
-    - confidence (float, 0.05–0.95)
+    - confidence (float, 0.05-0.95)
 
 api:
   reset: POST /reset

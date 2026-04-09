@@ -25,25 +25,35 @@ IDEAL_INTERVENTION_BY_RISK = [
     (1.01, "emergency_services"),
 ]
 
+# Hard bounds for all reward values — strictly open interval (0, 1)
+MIN_REWARD = 0.05
+MAX_REWARD = 0.95
+
 
 def _clamp_reward(r: float) -> float:
-    """Ensure reward is strictly in (0.05, 0.95) — never 0.0 or 1.0"""
-    return max(0.05, min(0.95, r))
+    """Ensure reward is strictly in (0.05, 0.95) — never 0.0 or 1.0."""
+    return max(MIN_REWARD, min(MAX_REWARD, float(r)))
+
+
+def _safe_gaussian(error: float, penalty: float) -> float:
+    """
+    Gaussian decay. When error=0 this would return exp(0)=1.0 which is invalid.
+    We cap to MAX_REWARD so it is always strictly < 1.0.
+    """
+    return _clamp_reward(math.exp(-penalty * error ** 2))
 
 
 def _detection_score(predicted_risk: float, true_risk: float) -> float:
-    """How close is the predicted risk to the true risk?"""
+    """How close is the predicted risk to the true risk? Always in (0.05, 0.95)."""
     error = abs(predicted_risk - true_risk)
-    # Gaussian decay — small errors get high scores
-    raw = math.exp(-4.0 * error ** 2)
-    return raw
+    return _safe_gaussian(error, penalty=4.0)
 
 
 def _intervention_score(action: AgentAction, true_risk: float) -> float:
-    """Is the recommended intervention appropriate for the risk level?"""
+    """Is the recommended intervention appropriate for the risk level? Always in (0.05, 0.95)."""
     predicted = action.recommended_intervention
     if predicted not in INTERVENTION_RANK:
-        return 0.1
+        return MIN_REWARD
 
     # Determine ideal for true risk
     ideal = "no_action"
@@ -56,76 +66,79 @@ def _intervention_score(action: AgentAction, true_risk: float) -> float:
     ideal_rank = INTERVENTION_RANK[ideal]
     rank_diff = abs(pred_rank - ideal_rank)
 
-    # Perfect = 1.0, off by 1 = 0.65, off by 2 = 0.35, off by 3+ = 0.1
-    scores = {0: 1.0, 1: 0.65, 2: 0.35}
-    return scores.get(rank_diff, 0.1)
+    # Cap at 0.90 (not 1.0) so even a perfect match stays < 1.0
+    scores = {0: 0.90, 1: 0.62, 2: 0.33}
+    return _clamp_reward(scores.get(rank_diff, 0.10))
 
 
 def _timeliness_score(action: AgentAction, true_risk: float) -> float:
-    """Urgency should match risk. High risk + low urgency = penalized."""
-    urgency_map = {"low": 0.15, "medium": 0.5, "high": 0.85, "critical": 0.98}
-    predicted_urgency = urgency_map.get(action.urgency_level.lower(), 0.5)
+    """Urgency should match risk. Always in (0.05, 0.95)."""
+    urgency_map = {"low": 0.15, "medium": 0.50, "high": 0.85, "critical": 0.95}
+    predicted_urgency = urgency_map.get(action.urgency_level.lower().strip(), 0.50)
     error = abs(predicted_urgency - true_risk)
-    return math.exp(-3.0 * error ** 2)
+    return _safe_gaussian(error, penalty=3.0)
 
 
 def _harm_avoidance_score(action: AgentAction, true_risk: float) -> float:
     """
-    Penalize dangerous errors:
+    Penalize dangerous errors.
     - Recommending no_action for high-risk patients (false negative)
     - Recommending emergency services for low-risk patients (over-escalation)
+    Always in (0.05, 0.95).
     """
     pred_rank = INTERVENTION_RANK.get(action.recommended_intervention, 0)
 
-    # False negative: high risk (>0.7) but low intervention (rank <= 1)
+    # False negative: high risk (>0.70) but low intervention (rank <= 1)
     if true_risk > 0.70 and pred_rank <= 1:
-        return 0.05  # severe penalty
+        return MIN_REWARD  # severe penalty
 
-    # Over-escalation: low risk (<0.3) but emergency intervention (rank >= 4)
+    # Over-escalation: low risk (<0.30) but emergency intervention (rank >= 4)
     if true_risk < 0.30 and pred_rank >= 4:
         return 0.15  # moderate penalty
 
-    # Under-treatment: moderate risk (0.5-0.85) + no action
+    # Under-treatment: moderate risk (0.50-0.85) + no action
     if 0.50 < true_risk < 0.85 and pred_rank == 0:
         return 0.10
 
-    return 0.90  # no harm
+    # No harm — cap at 0.88 (not 1.0 and not even 0.90 which could push total over MAX)
+    return 0.88
 
 
 def compute_reward(action: AgentAction, ground_truth: dict, task: str, difficulty: str) -> dict:
-    true_risk = ground_truth["true_risk"]
+    true_risk = float(ground_truth["true_risk"])
 
-    detection = _detection_score(action.risk_score, true_risk)
+    detection    = _detection_score(action.risk_score, true_risk)
     intervention = _intervention_score(action, true_risk)
-    timeliness = _timeliness_score(action, true_risk)
-    harm = _harm_avoidance_score(action, true_risk)
+    timeliness   = _timeliness_score(action, true_risk)
+    harm         = _harm_avoidance_score(action, true_risk)
 
-    # Weights vary by task
+    # Weights vary by task (all sum to 1.0)
     weights = {
-        "triage": {"detection": 0.35, "intervention": 0.30, "timeliness": 0.25, "harm": 0.10},
+        "triage":              {"detection": 0.35, "intervention": 0.30, "timeliness": 0.25, "harm": 0.10},
         "risk_stratification": {"detection": 0.40, "intervention": 0.25, "timeliness": 0.20, "harm": 0.15},
-        "early_warning": {"detection": 0.25, "intervention": 0.25, "timeliness": 0.30, "harm": 0.20},
+        "early_warning":       {"detection": 0.25, "intervention": 0.25, "timeliness": 0.30, "harm": 0.20},
     }.get(task, {"detection": 0.30, "intervention": 0.30, "timeliness": 0.20, "harm": 0.20})
 
-    # Difficulty multiplier (harder tasks have tighter scoring)
+    # Difficulty multiplier (harder = tighter scoring)
     diff_factor = {"easy": 1.0, "medium": 0.95, "hard": 0.88}.get(difficulty, 0.95)
 
     raw = (
-        weights["detection"] * detection
+        weights["detection"]    * detection
         + weights["intervention"] * intervention
-        + weights["timeliness"] * timeliness
-        + weights["harm"] * harm
+        + weights["timeliness"]   * timeliness
+        + weights["harm"]         * harm
     ) * diff_factor
 
+    # Final clamp guarantees total is strictly in (0.05, 0.95) — never 0.0 or 1.0
     total = _clamp_reward(raw)
 
     return {
-        "total": round(total, 4),
-        "detection": round(_clamp_reward(detection), 4),
-        "intervention": round(_clamp_reward(intervention), 4),
-        "timeliness": round(_clamp_reward(timeliness), 4),
+        "total":          round(total, 4),
+        "detection":      round(_clamp_reward(detection), 4),
+        "intervention":   round(_clamp_reward(intervention), 4),
+        "timeliness":     round(_clamp_reward(timeliness), 4),
         "harm_avoidance": round(_clamp_reward(harm), 4),
-        "true_risk": true_risk,
+        "true_risk":      true_risk,
         "ideal_intervention": ground_truth["ideal_intervention"],
     }
 
@@ -133,19 +146,21 @@ def compute_reward(action: AgentAction, ground_truth: dict, task: str, difficult
 class MoodMapEnv:
     """
     OpenEnv-compatible environment for passive mental health monitoring.
-    
+
     Tasks:
-      - triage: Prioritize patients by urgency (easy)
-      - risk_stratification: Classify risk tier from behavioral signals (medium)
-      - early_warning: Detect early deterioration from subtle signal changes (hard)
+      - triage:               Prioritize patients by urgency (easy)
+      - risk_stratification:  Classify risk tier from behavioral signals (medium)
+      - early_warning:        Detect early deterioration from subtle signal changes (hard)
     """
 
-    TASKS = ["triage", "risk_stratification", "early_warning"]
+    TASKS        = ["triage", "risk_stratification", "early_warning"]
     DIFFICULTIES = ["easy", "medium", "hard"]
 
     def __init__(self, task: str = "triage", difficulty: str = "easy", max_steps: int = 5):
-        assert task in self.TASKS, f"task must be one of {self.TASKS}"
-        assert difficulty in self.DIFFICULTIES, f"difficulty must be one of {self.DIFFICULTIES}"
+        if task not in self.TASKS:
+            raise ValueError(f"task must be one of {self.TASKS}, got '{task}'")
+        if difficulty not in self.DIFFICULTIES:
+            raise ValueError(f"difficulty must be one of {self.DIFFICULTIES}, got '{difficulty}'")
         self.task = task
         self.difficulty = difficulty
         self.max_steps = max_steps
@@ -160,12 +175,12 @@ class MoodMapEnv:
         self._history = []
         self._current_patient = generate_patient(task=self.task, difficulty=self.difficulty)
         return {
-            "episode_id": self._episode_id,
+            "episode_id":  self._episode_id,
             "observation": self._current_patient["observation"].model_dump(),
-            "task": self.task,
-            "difficulty": self.difficulty,
-            "step": 0,
-            "max_steps": self.max_steps,
+            "task":        self.task,
+            "difficulty":  self.difficulty,
+            "step":        0,
+            "max_steps":   self.max_steps,
         }
 
     def step(self, action: AgentAction) -> dict:
@@ -173,33 +188,36 @@ class MoodMapEnv:
             raise RuntimeError("Call reset() before step()")
 
         ground_truth = self._current_patient["ground_truth"]
-        observation = self._current_patient["observation"]
+        observation  = self._current_patient["observation"]
 
         reward_breakdown = compute_reward(action, ground_truth, self.task, self.difficulty)
         total_reward = reward_breakdown.pop("total")
+
+        # Safety: guarantee total_reward is always strictly in (0.05, 0.95)
+        total_reward = _clamp_reward(total_reward)
 
         self._step += 1
         done = self._step >= self.max_steps
 
         result = {
-            "episode_id": self._episode_id,
-            "step": self._step,
-            "observation": observation.model_dump(),
-            "action": action.model_dump(),
-            "reward": total_reward,
+            "episode_id":       self._episode_id,
+            "step":             self._step,
+            "observation":      observation.model_dump(),
+            "action":           action.model_dump(),
+            "reward":           total_reward,
             "reward_breakdown": reward_breakdown,
-            "done": done,
+            "done":             done,
             "info": {
-                "task": self.task,
-                "difficulty": self.difficulty,
-                "true_risk_revealed": ground_truth["true_risk"] if done else None,
+                "task":                       self.task,
+                "difficulty":                 self.difficulty,
+                "true_risk_revealed":         ground_truth["true_risk"] if done else None,
                 "ideal_intervention_revealed": ground_truth["ideal_intervention"] if done else None,
             },
         }
 
         self._history.append(result)
 
-        # Generate next patient if not done
+        # Generate next patient if episode not over
         if not done:
             self._current_patient = generate_patient(task=self.task, difficulty=self.difficulty)
             result["next_observation"] = self._current_patient["observation"].model_dump()
@@ -211,11 +229,11 @@ class MoodMapEnv:
             return {}
         total = sum(s["reward"] for s in self._history)
         return {
-            "episode_id": self._episode_id,
-            "task": self.task,
-            "difficulty": self.difficulty,
+            "episode_id":   self._episode_id,
+            "task":         self.task,
+            "difficulty":   self.difficulty,
             "total_reward": round(total, 4),
-            "mean_reward": round(total / len(self._history), 4),
-            "steps": len(self._history),
+            "mean_reward":  round(total / len(self._history), 4),
+            "steps":        len(self._history),
             "step_rewards": [s["reward"] for s in self._history],
         }
