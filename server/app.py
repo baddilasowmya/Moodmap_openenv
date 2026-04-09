@@ -1,113 +1,196 @@
-from fastapi import FastAPI, Body
-from typing import Optional, Dict, Any
+"""
+MoodMap Passive Mental Health — OpenEnv REST API (server/app.py)
+
+Fixed issues:
+1. Wired up real graders for all 3 tasks (triage, risk_stratification, early_warning)
+2. grader_score is now a bare float, not a dict
+3. All scores strictly clamped to (0.05, 0.95) — never 0.0 or 1.0
+4. reward clamped using the same safe bounds
+"""
+
+import sys
+import os
+
+# Allow imports from the project root when this file is run from /app/server/
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 import uuid
-import random
+import math
+from typing import Optional, Dict, Any
+from fastapi import FastAPI, Body, HTTPException
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="MoodMap Passive Mental Health Environment")
+from moodmap_env import MoodMapEnv
+from moodmap_env.models import AgentAction
+from graders import grade
 
-# -------- MOCK ENV (replace with your real env if needed) -------- #
+app = FastAPI(
+    title="MoodMap Passive Mental Health Environment",
+    description="An RL environment for passive mental health monitoring via behavioral signals.",
+    version="1.0.0",
+)
 
-sessions = {}
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def generate_observation():
-    return {
-        "patient_id": f"PT-{uuid.uuid4().hex[:8].upper()}",
-        "timestamp": "2026-04-08T00:00:00",
-        "age": random.randint(18, 70),
-        "gender": random.choice(["male", "female", "non-binary"]),
-        "baseline_mood_score": round(random.uniform(0.3, 0.8), 3),
-        "signals": [],
-        "history_days": random.randint(10, 100),
-        "prior_episodes": random.randint(0, 5),
-        "medication_adherence": round(random.uniform(0.3, 0.9), 3),
-        "task": "triage",
-        "difficulty": "easy"
-    }
+# ----------- Constants ----------- #
 
-# -------- ROUTES -------- #
+VALID_TASKS = ["triage", "risk_stratification", "early_warning"]
+VALID_DIFFICULTIES = ["easy", "medium", "hard"]
+
+# Hard bounds — strictly open interval (0, 1), never 0.0 or 1.0
+MIN_SCORE = 0.05
+MAX_SCORE = 0.95
+
+# In-memory session store
+sessions: dict[str, MoodMapEnv] = {}
+
+
+def _clamp(v: float) -> float:
+    """Clamp to strictly open interval (0.05, 0.95) — never 0.0 or 1.0."""
+    return max(MIN_SCORE, min(MAX_SCORE, float(v)))
+
+
+# ----------- Routes ----------- #
 
 @app.get("/")
 def home():
-    return {"message": "MoodMap API running"}
+    try:
+        dashboard_path = os.path.join(os.path.dirname(__file__), "..", "dashboard.html")
+        with open(dashboard_path, "r") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return {"message": "MoodMap API is running"}
+
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "service": "moodmap-openenv", "version": "1.0.0"}
+
 
 @app.get("/info")
 def info():
-    return {"env": "MoodMap", "version": "1.0"}
+    return {
+        "name": "MoodMap Passive Mental Health Environment",
+        "tasks": VALID_TASKS,
+        "difficulties": VALID_DIFFICULTIES,
+        "reward_range": [MIN_SCORE, MAX_SCORE],
+        "reward_components": ["detection", "intervention", "timeliness", "harm_avoidance"],
+        "observation_space": {
+            "type": "structured",
+            "fields": [
+                "patient_id", "age", "gender", "baseline_mood_score",
+                "signals.sleep_hours", "signals.activity_steps",
+                "signals.screen_time_hours", "signals.social_interactions",
+                "signals.heart_rate_variability", "signals.app_usage_variance",
+                "signals.typing_speed_change", "signals.location_entropy",
+                "history_days", "prior_episodes", "medication_adherence",
+            ],
+        },
+        "action_space": {
+            "type": "structured",
+            "fields": [
+                "risk_score", "recommended_intervention",
+                "urgency_level", "reasoning", "confidence",
+            ],
+        },
+    }
 
-# ✅ FIXED RESET (IMPORTANT)
+
 @app.post("/reset")
 def reset(body: Optional[Dict[str, Any]] = Body(default=None)):
+    body = body or {}
+    task = str(body.get("task", "triage")).lower().strip()
+    difficulty = str(body.get("difficulty", "easy")).lower().strip()
+    max_steps = int(body.get("max_steps", 5))
+
+    if task not in VALID_TASKS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid task '{task}'. Must be one of {VALID_TASKS}.",
+        )
+    if difficulty not in VALID_DIFFICULTIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid difficulty '{difficulty}'. Must be one of {VALID_DIFFICULTIES}.",
+        )
+    max_steps = max(1, min(20, max_steps))
+
+    env = MoodMapEnv(task=task, difficulty=difficulty, max_steps=max_steps)
+    state = env.reset()
     session_id = f"sess-{uuid.uuid4().hex[:12]}"
-    episode_id = f"EP-{uuid.uuid4().hex[:10].upper()}"
+    sessions[session_id] = env
 
-    observation = generate_observation()
+    return {"session_id": session_id, **state}
 
-    sessions[session_id] = {
-        "step": 0,
-        "max_steps": 5,
-        "episode_id": episode_id,
-        "last_observation": observation
-    }
 
-    return {
-        "session_id": session_id,
-        "episode_id": episode_id,
-        "observation": observation,
-        "task": "triage",
-        "difficulty": "easy",
-        "step": 0,
-        "max_steps": 5
-    }
-
-# ✅ STEP
 @app.post("/step")
 def step(body: Dict[str, Any]):
     session_id = body.get("session_id")
-    patient_id = body.get("patient_id")
+    if not session_id or session_id not in sessions:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Session '{session_id}' not found. Call /reset first.",
+        )
 
-    if session_id not in sessions:
-        return {"error": "Invalid session_id"}
+    env = sessions[session_id]
 
-    session = sessions[session_id]
-    session["step"] += 1
+    # Clamp incoming floats to safe open interval before constructing action
+    risk_score = _clamp(float(body.get("risk_score", 0.5)))
+    confidence = _clamp(float(body.get("confidence", 0.5)))
 
-    # fake reward logic
-    reward = round(random.uniform(0.2, 0.9), 4)
+    action = AgentAction(
+        patient_id=str(body.get("patient_id", "unknown")),
+        risk_score=risk_score,
+        recommended_intervention=str(body.get("recommended_intervention", "no_action")),
+        urgency_level=str(body.get("urgency_level", "medium")),
+        reasoning=str(body.get("reasoning", "")),
+        confidence=confidence,
+    )
 
-    next_obs = generate_observation()
+    result = env.step(action)
 
-    done = session["step"] >= session["max_steps"]
-
-    return {
-        "episode_id": session["episode_id"],
-        "step": session["step"],
-        "observation": session["last_observation"],
-        "action": body,
-        "reward": reward,
-        "done": done,
-        "next_observation": next_obs,
-        "info": {
-            "task": "triage",
-            "difficulty": "easy"
+    # Run the real task grader — returns float strictly in (0.05, 0.95)
+    # BUG FIX: was returning a dict {"score": float}; must be a bare float
+    grader_score: float = grade(
+        task=env.task,
+        action=action.model_dump(),
+        ground_truth={
+            "true_risk": result["reward_breakdown"].get("true_risk", risk_score),
+            "ideal_intervention": result["reward_breakdown"].get(
+                "ideal_intervention", action.recommended_intervention
+            ),
         },
-        "grader_score": {
-            "score": round(random.uniform(0.1, 1.0), 3)
-        }
-    }
+    )
+
+    # Safety clamp — grade() already clamps, this is an extra safety net
+    result["grader_score"] = _clamp(float(grader_score))  # bare float, NOT a dict
+    result["reward"] = _clamp(float(result["reward"]))
+
+    if result["done"]:
+        result["episode_summary"] = env.get_episode_summary()
+        del sessions[session_id]
+
+    return result
+
 
 @app.get("/sessions")
 def list_sessions():
-    return {"sessions": list(sessions.keys())}
+    return {
+        "active_sessions": len(sessions),
+        "session_ids": list(sessions.keys()),
+    }
 
 
-# ✅ REQUIRED FOR OPENENV
+# Required for OpenEnv
 def main():
     import uvicorn
-    uvicorn.run("server.app:app", host="0.0.0.0", port=7860)
+    uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
 
 
 if __name__ == "__main__":
