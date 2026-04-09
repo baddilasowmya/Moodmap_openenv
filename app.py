@@ -11,7 +11,8 @@ Endpoints follow the OpenEnv spec:
 
 import os
 import uuid
-from fastapi import FastAPI, HTTPException
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -36,7 +37,7 @@ app.add_middleware(
 # In-memory session store (stateless per Hugging Face Spaces restart)
 _sessions: dict[str, MoodMapEnv] = {}
 
-VALID_TASKS       = ["triage", "risk_stratification", "early_warning"]
+VALID_TASKS        = ["triage", "risk_stratification", "early_warning"]
 VALID_DIFFICULTIES = ["easy", "medium", "hard"]
 
 # Hard score bounds — strictly open interval, never 0.0 or 1.0
@@ -49,9 +50,9 @@ def _clamp_score(v: float) -> float:
 
 
 class ResetRequest(BaseModel):
-    task:       str = Field("triage", description="One of: triage, risk_stratification, early_warning")
-    difficulty: str = Field("easy",   description="One of: easy, medium, hard")
-    max_steps:  int = Field(5, ge=1, le=20)
+    task:       Optional[str] = Field("triage", description="One of: triage, risk_stratification, early_warning")
+    difficulty: Optional[str] = Field("easy",   description="One of: easy, medium, hard")
+    max_steps:  Optional[int] = Field(5, ge=1, le=20)
 
 
 class StepRequest(BaseModel):
@@ -109,10 +110,15 @@ async def info():
 
 
 @app.post("/reset")
-async def reset(req: ResetRequest):
+async def reset(req: Optional[ResetRequest] = Body(default=None)):
+    # If no body was sent, use all defaults
+    if req is None:
+        req = ResetRequest()
+
     # Normalise and validate task / difficulty
-    task       = req.task.lower().strip()
-    difficulty = req.difficulty.lower().strip()
+    task       = (req.task or "triage").lower().strip()
+    difficulty = (req.difficulty or "easy").lower().strip()
+    max_steps  = req.max_steps if req.max_steps is not None else 5
 
     if task not in VALID_TASKS:
         raise HTTPException(
@@ -125,7 +131,7 @@ async def reset(req: ResetRequest):
             detail=f"Invalid difficulty '{difficulty}'. Must be one of {VALID_DIFFICULTIES}.",
         )
 
-    env = MoodMapEnv(task=task, difficulty=difficulty, max_steps=req.max_steps)
+    env = MoodMapEnv(task=task, difficulty=difficulty, max_steps=max_steps)
     state = env.reset()
     session_id = f"sess-{uuid.uuid4().hex[:12]}"
     _sessions[session_id] = env
@@ -142,7 +148,6 @@ async def step(req: StepRequest):
         )
 
     # Clamp risk_score and confidence to (0.05, 0.95) before building the action
-    # (guards against 0.0 / 1.0 being passed in by clients)
     safe_risk_score = _clamp_score(req.risk_score)
     safe_confidence = _clamp_score(req.confidence)
 
