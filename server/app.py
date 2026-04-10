@@ -8,7 +8,6 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import uuid
-import math
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import HTMLResponse
@@ -34,8 +33,9 @@ app.add_middleware(
 VALID_TASKS = ["triage", "risk_stratification", "early_warning"]
 VALID_DIFFICULTIES = ["easy", "medium", "hard"]
 
-MIN_SCORE = 0.05
-MAX_SCORE = 0.95
+# Must match graders/__init__.py and openenv.yaml score_range exactly
+MIN_SCORE = 0.06
+MAX_SCORE = 0.94
 
 sessions: dict[str, MoodMapEnv] = {}
 
@@ -56,7 +56,7 @@ def home():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "moodmap-openenv", "version": "1.0.0"}
+    return {"status": "healthy", "service": "moodmap-openenv", "version": "1.0.0"}
 
 
 @app.get("/info")
@@ -88,9 +88,22 @@ def info():
     }
 
 
+@app.get("/metadata")
+def metadata():
+    return {
+        "name": "MoodMap Passive Mental Health Environment",
+        "description": (
+            "A passive mental health monitoring environment where an LLM agent analyzes "
+            "behavioral signals to assess patient risk and recommend interventions."
+        ),
+        "tasks": VALID_TASKS,
+        "difficulties": VALID_DIFFICULTIES,
+        "reward_range": [MIN_SCORE, MAX_SCORE],
+    }
+
+
 @app.post("/reset")
 def reset(body: Optional[Dict[str, Any]] = Body(default=None)):
-    # Accept completely empty POST body — validator sends no body at all
     body = body or {}
     task = str(body.get("task", "triage")).lower().strip()
     difficulty = str(body.get("difficulty", "easy")).lower().strip()
