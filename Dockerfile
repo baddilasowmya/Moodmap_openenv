@@ -19,10 +19,9 @@ COPY pyproject.toml .
 # Expose port
 EXPOSE 7860
 
-# Environment variables (API_BASE_URL and MODEL_NAME have defaults; HF_TOKEN does NOT)
+# HF_TOKEN must be set at runtime — no default
 ENV API_BASE_URL="<your-active-api-base-url>"
 ENV MODEL_NAME="<your-active-model-name>"
-# HF_TOKEN must be set at runtime — no default
 
-# Start the FastAPI server using the correct entrypoint
+# Use server/app.py — handles empty POST /reset correctly
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

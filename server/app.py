@@ -1,17 +1,10 @@
 """
 MoodMap Passive Mental Health — OpenEnv REST API (server/app.py)
-
-Fixed issues:
-1. Wired up real graders for all 3 tasks (triage, risk_stratification, early_warning)
-2. grader_score is now a bare float, not a dict
-3. All scores strictly clamped to (0.05, 0.95) — never 0.0 or 1.0
-4. reward clamped using the same safe bounds
 """
 
 import sys
 import os
 
-# Allow imports from the project root when this file is run from /app/server/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import uuid
@@ -38,25 +31,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----------- Constants ----------- #
-
 VALID_TASKS = ["triage", "risk_stratification", "early_warning"]
 VALID_DIFFICULTIES = ["easy", "medium", "hard"]
 
-# Hard bounds — strictly open interval (0, 1), never 0.0 or 1.0
 MIN_SCORE = 0.05
 MAX_SCORE = 0.95
 
-# In-memory session store
 sessions: dict[str, MoodMapEnv] = {}
 
 
 def _clamp(v: float) -> float:
-    """Clamp to strictly open interval (0.05, 0.95) — never 0.0 or 1.0."""
     return max(MIN_SCORE, min(MAX_SCORE, float(v)))
 
-
-# ----------- Routes ----------- #
 
 @app.get("/")
 def home():
@@ -104,6 +90,7 @@ def info():
 
 @app.post("/reset")
 def reset(body: Optional[Dict[str, Any]] = Body(default=None)):
+    # Accept completely empty POST body — validator sends no body at all
     body = body or {}
     task = str(body.get("task", "triage")).lower().strip()
     difficulty = str(body.get("difficulty", "easy")).lower().strip()
@@ -140,7 +127,6 @@ def step(body: Dict[str, Any]):
 
     env = sessions[session_id]
 
-    # Clamp incoming floats to safe open interval before constructing action
     risk_score = _clamp(float(body.get("risk_score", 0.5)))
     confidence = _clamp(float(body.get("confidence", 0.5)))
 
@@ -155,8 +141,6 @@ def step(body: Dict[str, Any]):
 
     result = env.step(action)
 
-    # Run the real task grader — returns float strictly in (0.05, 0.95)
-    # BUG FIX: was returning a dict {"score": float}; must be a bare float
     grader_score: float = grade(
         task=env.task,
         action=action.model_dump(),
@@ -168,8 +152,7 @@ def step(body: Dict[str, Any]):
         },
     )
 
-    # Safety clamp — grade() already clamps, this is an extra safety net
-    result["grader_score"] = _clamp(float(grader_score))  # bare float, NOT a dict
+    result["grader_score"] = _clamp(float(grader_score))
     result["reward"] = _clamp(float(result["reward"]))
 
     if result["done"]:
@@ -187,7 +170,6 @@ def list_sessions():
     }
 
 
-# Required for OpenEnv
 def main():
     import uvicorn
     uvicorn.run("server.app:app", host="0.0.0.0", port=7860, reload=False)
