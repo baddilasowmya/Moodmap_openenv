@@ -1,1201 +1,726 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MoodMap — Passive Mental Health Monitor</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MoodMap — Passive Mental Health Agent</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>"/>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
   :root {
-    --bg: #060a0f;
-    --surface: #0d1520;
-    --surface2: #121d2e;
-    --border: #1a2d45;
-    --accent-cyan: #00e5ff;
-    --accent-green: #00ff88;
-    --accent-amber: #ffb800;
-    --accent-red: #ff3d5a;
-    --accent-purple: #b44fff;
-    --text: #c8dff0;
-    --text-muted: #5a7a99;
-    --text-dim: #2a4a66;
-    --risk-low: #00ff88;
-    --risk-med: #ffb800;
-    --risk-high: #ff6b35;
-    --risk-crit: #ff3d5a;
+    --bg:#07090f; --panel:#0f1221; --panel2:#141728; --border:#1e2340;
+    --text:#e8eaf0; --muted:#6b7490; --accent:#7c3aed;
+    --low:#2ed573; --medium:#ffa502; --high:#ff6b35; --critical:#ff4757;
+    --triage:#06b6d4; --risk:#8b5cf6; --warning:#f59e0b;
   }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-
-  body {
-    font-family: 'JetBrains Mono', monospace;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
-
-  /* Grid noise overlay */
-  body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(0,229,255,0.015) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0,229,255,0.015) 1px, transparent 1px);
-    background-size: 32px 32px;
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  /* Scanline effect */
-  body::after {
-    content: '';
-    position: fixed;
-    inset: 0;
-    background: repeating-linear-gradient(
-      0deg,
-      transparent,
-      transparent 2px,
-      rgba(0,0,0,0.04) 2px,
-      rgba(0,0,0,0.04) 4px
-    );
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  /* ── HEADER ── */
-  header {
-    position: relative;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 16px 28px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(6,10,15,0.92);
-    backdrop-filter: blur(12px);
-  }
-
-  .logo {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .logo-icon {
-    width: 36px; height: 36px;
-    position: relative;
-  }
-
-  .logo-icon svg { width: 36px; height: 36px; }
-
-  .logo-text {
-    font-family: 'Syne', sans-serif;
-    font-weight: 800;
-    font-size: 1.3rem;
-    letter-spacing: -0.02em;
-  }
-
-  .logo-text span { color: var(--accent-cyan); }
-
-  .logo-sub {
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    margin-top: 2px;
-  }
-
-  .header-stats {
-    display: flex;
-    gap: 28px;
-    align-items: center;
-  }
-
-  .hstat {
-    text-align: right;
-  }
-
-  .hstat-val {
-    font-size: 1.1rem;
-    font-weight: 700;
-    color: var(--accent-cyan);
-    font-family: 'Syne', sans-serif;
-  }
-
-  .hstat-label {
-    font-size: 0.6rem;
-    color: var(--text-muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-  }
-
-  .status-dot {
-    width: 8px; height: 8px;
-    border-radius: 50%;
-    background: var(--accent-green);
-    box-shadow: 0 0 8px var(--accent-green);
-    animation: pulse-dot 2s ease-in-out infinite;
-  }
-
-  @keyframes pulse-dot {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.7); }
-  }
-
-  .live-badge {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 0.65rem;
-    letter-spacing: 0.15em;
-    color: var(--accent-green);
-    text-transform: uppercase;
-  }
-
-  /* ── LAYOUT ── */
-  .main {
-    position: relative;
-    z-index: 1;
-    display: grid;
-    grid-template-columns: 1fr 340px;
-    grid-template-rows: auto 1fr;
-    gap: 0;
-    height: calc(100vh - 69px);
-  }
-
-  /* ── TASK SELECTOR ── */
-  .task-bar {
-    grid-column: 1 / -1;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 12px 28px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(13,21,32,0.8);
-    flex-wrap: wrap;
-  }
-
-  .task-label {
-    font-size: 0.62rem;
-    color: var(--text-muted);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    margin-right: 4px;
-  }
-
-  .task-btn {
-    padding: 5px 14px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    cursor: pointer;
-    transition: all 0.2s;
-    letter-spacing: 0.04em;
-  }
-
-  .task-btn:hover { border-color: var(--accent-cyan); color: var(--accent-cyan); }
-  .task-btn.active { background: rgba(0,229,255,0.1); border-color: var(--accent-cyan); color: var(--accent-cyan); }
-
-  .diff-btn {
-    padding: 5px 14px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.72rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .diff-btn:hover { border-color: var(--accent-amber); color: var(--accent-amber); }
-  .diff-btn.active { background: rgba(255,184,0,0.08); border-color: var(--accent-amber); color: var(--accent-amber); }
-
-  .sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
-
-  .run-btn {
-    margin-left: auto;
-    padding: 7px 22px;
-    border-radius: 4px;
-    border: none;
-    background: linear-gradient(135deg, var(--accent-cyan), #0088ff);
-    color: #000;
-    font-family: 'Syne', sans-serif;
-    font-weight: 700;
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .run-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(0,229,255,0.3); }
-  .run-btn:active { transform: translateY(0); }
-  .run-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-
-  /* ── PATIENT GRID ── */
-  .patient-area {
-    overflow-y: auto;
-    padding: 20px 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  .patient-area::-webkit-scrollbar { width: 4px; }
-  .patient-area::-webkit-scrollbar-track { background: transparent; }
-  .patient-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-  .section-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 0.65rem;
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    margin-bottom: 4px;
-  }
-
-  .patient-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 16px 20px;
-    position: relative;
-    overflow: hidden;
-    transition: border-color 0.3s;
-    animation: slide-in 0.4s ease-out;
-  }
-
-  @keyframes slide-in {
-    from { opacity: 0; transform: translateY(12px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  .patient-card:hover { border-color: var(--accent-cyan); }
-
-  .patient-card::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 3px;
-    border-radius: 8px 0 0 8px;
-  }
-
-  .risk-low .patient-card::before { background: var(--risk-low); }
-  .risk-medium .patient-card::before { background: var(--risk-med); }
-  .risk-high .patient-card::before { background: var(--risk-high); }
-  .risk-critical .patient-card::before { background: var(--risk-crit); box-shadow: 0 0 12px var(--risk-crit); }
-
-  .card-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-
-  .patient-id {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--accent-cyan);
-  }
-
-  .patient-meta {
-    font-size: 0.65rem;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
-
-  .risk-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .risk-score-display {
-    font-family: 'Syne', sans-serif;
-    font-weight: 800;
-    font-size: 1.4rem;
-  }
-
-  .risk-label {
-    font-size: 0.58rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    text-align: right;
-    line-height: 1.3;
-  }
-
-  /* Signal bars */
-  .signals-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 7px 16px;
-    margin-bottom: 12px;
-  }
-
-  .signal-row {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
-  .signal-label {
-    font-size: 0.58rem;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    display: flex;
-    justify-content: space-between;
-  }
-
-  .signal-val { color: var(--text); }
-
-  .signal-bar {
-    height: 3px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .signal-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.6s ease;
-  }
-
-  .card-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-top: 10px;
-    border-top: 1px solid var(--border);
-    font-size: 0.65rem;
-  }
-
-  .intervention-tag {
-    padding: 3px 10px;
-    border-radius: 3px;
-    background: rgba(0,229,255,0.08);
-    border: 1px solid rgba(0,229,255,0.2);
-    color: var(--accent-cyan);
-    font-size: 0.62rem;
-    letter-spacing: 0.05em;
-  }
-
-  .reward-display {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .reward-val {
-    font-family: 'Syne', sans-serif;
-    font-weight: 700;
-    font-size: 0.95rem;
-  }
-
-  .reward-label {
-    font-size: 0.58rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-
-  /* Urgency badge */
-  .urgency-badge {
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 0.6rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    font-weight: 600;
-  }
-
-  .urg-low { background: rgba(0,255,136,0.1); color: var(--risk-low); }
-  .urg-medium { background: rgba(255,184,0,0.1); color: var(--risk-med); }
-  .urg-high { background: rgba(255,107,53,0.1); color: var(--risk-high); }
-  .urg-critical { background: rgba(255,61,90,0.12); color: var(--risk-crit); animation: blink-crit 1.2s infinite; }
-
-  @keyframes blink-crit {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
-  }
-
-  /* ── RIGHT PANEL ── */
-  .right-panel {
-    border-left: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background: rgba(13,21,32,0.6);
-  }
-
-  /* Leaderboard */
-  .panel-section {
-    padding: 16px 18px;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-
-  .panel-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 0.62rem;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    margin-bottom: 12px;
-  }
-
-  .leaderboard-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 0;
-    border-bottom: 1px solid rgba(26,45,69,0.5);
-    font-size: 0.7rem;
-    transition: background 0.2s;
-  }
-
-  .leaderboard-row:last-child { border-bottom: none; }
-
-  .lb-rank {
-    width: 18px;
-    text-align: center;
-    color: var(--text-muted);
-    font-weight: 700;
-    font-size: 0.65rem;
-  }
-
-  .lb-rank.first { color: var(--accent-amber); }
-  .lb-rank.second { color: #aaa; }
-  .lb-rank.third { color: #8b6914; }
-
-  .lb-name { flex: 1; color: var(--text); }
-  .lb-task { color: var(--text-muted); font-size: 0.6rem; }
-  .lb-score { font-family: 'Syne', sans-serif; font-weight: 700; color: var(--accent-green); }
-
-  /* Live log */
-  .log-section {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    padding: 16px 18px;
-  }
-
-  .log-container {
-    flex: 1;
-    overflow-y: auto;
-    font-size: 0.65rem;
-    line-height: 1.7;
-    color: var(--text-muted);
-  }
-
-  .log-container::-webkit-scrollbar { width: 3px; }
-  .log-container::-webkit-scrollbar-thumb { background: var(--border); }
-
-  .log-line { padding: 1px 0; }
-  .log-line.start { color: var(--accent-green); font-weight: 600; }
-  .log-line.step { color: var(--accent-cyan); }
-  .log-line.end { color: var(--accent-amber); font-weight: 600; }
-  .log-line.warn { color: var(--accent-red); }
-  .log-line.info { color: var(--text-muted); }
-
-  /* Stats row */
-  .stats-row {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 0;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-
-  .stat-cell {
-    padding: 12px 16px;
-    border-right: 1px solid var(--border);
-    text-align: center;
-  }
-
-  .stat-cell:last-child { border-right: none; }
-
-  .stat-v {
-    font-family: 'Syne', sans-serif;
-    font-weight: 700;
-    font-size: 1.15rem;
-    color: var(--accent-cyan);
-  }
-
-  .stat-l {
-    font-size: 0.57rem;
-    color: var(--text-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-top: 2px;
-  }
-
-  /* Empty state */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 300px;
-    gap: 14px;
-    color: var(--text-dim);
-    text-align: center;
-  }
-
-  .empty-state svg { opacity: 0.3; }
-
-  .empty-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 1rem;
-    color: var(--text-muted);
-  }
-
-  .empty-sub { font-size: 0.7rem; }
-
-  /* Spinner */
-  .spinner {
-    display: inline-block;
-    width: 14px; height: 14px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent-cyan);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* Progress bar */
-  .progress-bar {
-    height: 2px;
-    background: var(--border);
-    border-radius: 1px;
-    overflow: hidden;
-    margin: 8px 0;
-  }
-
-  .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-green));
-    border-radius: 1px;
-    transition: width 0.4s ease;
-  }
-
-  /* Reward breakdown mini */
-  .breakdown-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 0.6rem;
-    margin-top: 4px;
-  }
-
-  .bd-label { color: var(--text-muted); width: 72px; flex-shrink: 0; }
-
-  .bd-bar {
-    flex: 1;
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-
-  .bd-fill { height: 100%; border-radius: 2px; }
-  .bd-val { color: var(--text); width: 38px; text-align: right; }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;}
+
+  /* WELCOME */
+  #welcome{display:flex;flex-direction:column;min-height:100vh;}
+  .hero{background:linear-gradient(135deg,#0f1221 0%,#1a0840 50%,#0f1221 100%);padding:48px 24px 36px;text-align:center;position:relative;overflow:hidden;}
+  .hero::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(124,58,237,0.18) 0%,transparent 70%);}
+  .hero-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(124,58,237,0.15);border:1px solid rgba(124,58,237,0.4);color:#a78bfa;font-size:0.72rem;font-weight:600;padding:4px 14px;border-radius:20px;margin-bottom:20px;letter-spacing:0.06em;text-transform:uppercase;}
+  .hero h1{font-size:clamp(1.8rem,4vw,2.8rem);font-weight:900;line-height:1.1;margin-bottom:14px;background:linear-gradient(135deg,#fff 0%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+  .hero p{font-size:1rem;color:var(--muted);max-width:580px;margin:0 auto 32px;line-height:1.6;}
+  .impact-row{display:flex;justify-content:center;gap:32px;flex-wrap:wrap;margin-bottom:36px;position:relative;z-index:1;}
+  .impact-card{background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:12px;padding:14px 24px;text-align:center;}
+  .impact-num{font-size:1.6rem;font-weight:800;color:#a78bfa;}
+  .impact-lbl{font-size:0.68rem;color:var(--muted);margin-top:3px;text-transform:uppercase;letter-spacing:0.06em;}
+
+  .section-title{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);margin-bottom:16px;text-align:center;}
+
+  /* TASK CARDS */
+  .tasks-section{padding:36px 24px;max-width:1000px;margin:0 auto;width:100%;}
+  .task-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
+  .task-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:20px;cursor:pointer;transition:all 0.2s;position:relative;overflow:hidden;}
+  .task-card::before{content:'';position:absolute;inset:0;opacity:0;transition:opacity 0.2s;border-radius:16px;}
+  .task-card.triage::before{background:linear-gradient(135deg,rgba(6,182,212,0.08),transparent);}
+  .task-card.risk_stratification::before{background:linear-gradient(135deg,rgba(139,92,246,0.08),transparent);}
+  .task-card.early_warning::before{background:linear-gradient(135deg,rgba(245,158,11,0.08),transparent);}
+  .task-card:hover::before{opacity:1;}
+  .task-card:hover{transform:translateY(-3px);box-shadow:0 12px 40px rgba(0,0,0,0.4);}
+  .task-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px rgba(124,58,237,0.3);}
+  .task-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .task-icon{font-size:1.8rem;}
+  .task-diff{font-size:0.6rem;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:0.06em;}
+  .task-diff.easy{background:rgba(46,213,115,0.15);color:#2ed573;border:1px solid rgba(46,213,115,0.3);}
+  .task-diff.medium{background:rgba(255,165,2,0.15);color:#ffa502;border:1px solid rgba(255,165,2,0.3);}
+  .task-diff.hard{background:rgba(255,71,87,0.15);color:#ff4757;border:1px solid rgba(255,71,87,0.3);}
+  .task-name{font-size:1rem;font-weight:700;margin-bottom:6px;}
+  .task-desc{font-size:0.78rem;color:var(--muted);line-height:1.5;margin-bottom:12px;}
+  .task-context{font-size:0.68rem;color:#a78bfa;font-style:italic;}
+
+  /* SIGNALS GUIDE */
+  .signals-section{padding:0 24px 36px;max-width:1000px;margin:0 auto;width:100%;}
+  .signals-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;}
+  .signal-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+  .signal-name{font-size:0.8rem;font-weight:600;color:#a78bfa;margin-bottom:3px;}
+  .signal-desc{font-size:0.7rem;color:var(--muted);line-height:1.4;}
+
+  /* INTERVENTIONS */
+  .interventions-section{padding:0 24px 48px;max-width:1000px;margin:0 auto;width:100%;}
+  .int-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;}
+  .int-item{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:0.75rem;}
+  .int-name{font-weight:600;color:#e8eaf0;margin-bottom:2px;}
+  .int-risk{font-size:0.65rem;color:var(--muted);}
+
+  .start-wrap{text-align:center;padding:0 24px 48px;}
+  .btn-start{background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;border:none;padding:14px 48px;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer;transition:all 0.2s;box-shadow:0 8px 32px rgba(124,58,237,0.35);}
+  .btn-start:hover{transform:translateY(-2px);box-shadow:0 12px 40px rgba(124,58,237,0.5);}
+  .start-hint{font-size:0.75rem;color:var(--muted);margin-top:10px;}
+
+  /* DASHBOARD */
+  #dashboard{display:none;flex-direction:column;height:100vh;}
+  header{background:linear-gradient(90deg,#0f1221,#0b0d18);border-bottom:1px solid var(--border);padding:8px 16px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+  .hdr-left{display:flex;align-items:center;gap:10px;}
+  .hdr-back{background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:7px;font-size:0.75rem;cursor:pointer;transition:all 0.15s;}
+  .hdr-back:hover{color:var(--text);background:rgba(255,255,255,0.1);}
+  header h1{font-size:1rem;font-weight:700;}
+  header p{font-size:0.68rem;color:var(--muted);}
+  .hdr-right{display:flex;align-items:center;gap:16px;}
+  .hdr-stat{text-align:center;}
+  .hdr-val{font-size:1.2rem;font-weight:800;line-height:1;}
+  .hdr-lbl{font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-top:1px;}
+  .badge{color:#fff;font-size:0.6rem;padding:3px 10px;border-radius:20px;font-weight:700;letter-spacing:0.06em;transition:background 0.3s;}
+
+  .layout{display:grid;grid-template-columns:220px 1fr 300px;gap:10px;padding:10px;flex:1;min-height:0;}
+
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;}
+  .card h3{font-size:0.62rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);margin-bottom:8px;}
+
+  /* LEFT */
+  .left-panel{display:flex;flex-direction:column;gap:8px;overflow:hidden;}
+  .task-info-box{background:var(--panel2);border-radius:8px;padding:10px;margin-bottom:4px;}
+  .task-active-name{font-size:0.88rem;font-weight:700;margin-bottom:2px;}
+  .task-active-desc{font-size:0.68rem;color:var(--muted);line-height:1.4;}
+
+  button{flex:1;padding:8px 6px;border-radius:7px;font-size:0.78rem;font-weight:600;border:none;cursor:pointer;transition:all 0.18s;}
+  .btn-primary{background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;width:100%;margin-bottom:5px;padding:9px;display:block;}
+  .btn-primary:hover{opacity:0.85;transform:translateY(-1px);}
+  .btn-row{display:flex;gap:5px;margin-bottom:5px;}
+  .btn-step{background:linear-gradient(135deg,#00b894,#00d2d3);color:#fff;}
+  .btn-auto{background:linear-gradient(135deg,#00b894,#00d2d3);color:#fff;}
+  .btn-stop{background:linear-gradient(135deg,#d63031,#ff4757);color:#fff;}
+  button:disabled{opacity:0.3;cursor:not-allowed;transform:none!important;}
+  .speed-row{display:flex;align-items:center;gap:6px;margin-top:4px;}
+  .speed-row label{font-size:0.68rem;color:var(--muted);white-space:nowrap;}
+  input[type=range]{flex:1;accent-color:#7c3aed;}
+
+  .stat-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);}
+  .stat-row:last-child{border-bottom:none;}
+  .stat-label{font-size:0.72rem;color:var(--muted);}
+  .stat-value{font-size:0.85rem;font-weight:700;}
+  .good{color:#2ed573;} .warn{color:#ffa502;} .bad{color:#ff4757;}
+
+  .prog-wrap{margin-top:5px;}
+  .prog-label{display:flex;justify-content:space-between;font-size:0.62rem;color:var(--muted);margin-bottom:2px;}
+  .progress-bar{background:var(--border);border-radius:99px;height:5px;overflow:hidden;}
+  .progress-fill{height:100%;border-radius:99px;transition:width 0.5s ease;}
+  .fill-score{background:linear-gradient(90deg,#7c3aed,#a78bfa);}
+  .fill-step{background:linear-gradient(90deg,#ffa502,#ff4757);}
+
+  /* CENTER — patient signal display */
+  .center-panel{display:flex;flex-direction:column;gap:8px;min-height:0;overflow-y:auto;}
+  .patient-header{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;}
+  .patient-id{font-size:1.1rem;font-weight:800;margin-bottom:4px;}
+  .patient-meta{font-size:0.75rem;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap;}
+  .signals-grid-dash{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .signal-cell{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center;}
+  .signal-cell.risk-high{border-color:#ff4757;}
+  .signal-cell.risk-warn{border-color:#ffa502;}
+  .signal-cell.risk-ok{border-color:#2ed573;}
+  .signal-val{font-size:1.1rem;font-weight:800;margin-bottom:3px;}
+  .signal-lbl{font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;}
+  .no-patient{text-align:center;padding:60px 20px;color:var(--muted);font-size:0.85rem;}
+
+  /* ACTION PANEL */
+  .action-panel{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px;}
+  .action-panel h3{font-size:0.62rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);margin-bottom:10px;}
+  .action-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .field-group{display:flex;flex-direction:column;gap:4px;}
+  .field-label{font-size:0.68rem;color:var(--muted);}
+  select,input[type=number]{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:0.78rem;width:100%;}
+  select:focus,input[type=number]:focus{outline:none;border-color:#7c3aed;}
+  .risk-slider-wrap{grid-column:1/-1;}
+  .risk-slider-row{display:flex;align-items:center;gap:8px;}
+  .risk-slider-val{font-size:1.1rem;font-weight:800;color:#a78bfa;min-width:42px;text-align:right;}
+  input[type=range]#risk-slider{accent-color:#7c3aed;}
+  textarea{background:var(--panel2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 8px;font-size:0.75rem;width:100%;resize:none;font-family:inherit;}
+  textarea:focus{outline:none;border-color:#7c3aed;}
+  .btn-submit{background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;width:100%;padding:10px;margin-top:8px;font-weight:700;border-radius:8px;cursor:pointer;transition:all 0.2s;}
+  .btn-submit:hover:not(:disabled){opacity:0.85;transform:translateY(-1px);}
+
+  /* RIGHT */
+  .right-panel{display:flex;flex-direction:column;gap:8px;min-height:0;}
+  .tabs{display:flex;gap:4px;margin-bottom:6px;}
+  .tab{flex:1;padding:5px;border-radius:6px;font-size:0.68rem;font-weight:600;text-align:center;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:all 0.15s;}
+  .tab.active{background:rgba(124,58,237,0.2);border-color:rgba(124,58,237,0.5);color:#a78bfa;}
+  .history-list{display:flex;flex-direction:column;gap:5px;overflow-y:auto;flex:1;}
+  .history-item{padding:8px 10px;border-radius:7px;border-left:3px solid #7c3aed;background:#0a0c1a;flex-shrink:0;}
+  .history-step{font-size:0.68rem;color:var(--muted);margin-bottom:2px;}
+  .history-score{font-size:1.1rem;font-weight:800;}
+  .history-detail{font-size:0.65rem;color:var(--muted);margin-top:2px;}
+  .urgency-tag{display:inline-block;font-size:0.55rem;padding:1px 5px;border-radius:20px;font-weight:700;text-transform:uppercase;margin-left:4px;}
+  .urgency-low{background:#1a3a2a;color:#2ed573;}
+  .urgency-medium{background:#3a2a00;color:#ffa502;}
+  .urgency-high{background:#3a1500;color:#ff6b35;}
+  .urgency-critical{background:#3a0507;color:#ff4757;}
+
+  #log{flex:1;overflow-y:auto;font-size:0.73rem;font-family:'Consolas',monospace;background:#060810;border-radius:7px;padding:8px;display:flex;flex-direction:column;gap:3px;min-height:80px;}
+  .log-entry{padding:4px 7px;border-radius:4px;border-left:3px solid;line-height:1.45;}
+  .log-entry.info{border-color:#7c3aed;color:#a0aec0;}
+  .log-entry.success{border-color:#2ed573;color:#2ed573;}
+  .log-entry.warn{border-color:#ffa502;color:#ffa502;}
+  .log-entry.error{border-color:#ff4757;color:#ff4757;}
+  .log-entry.step{border-color:#1e2340;color:#515878;}
+
+  #toast{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#0f1221;border:2px solid;border-radius:18px;padding:32px 44px;text-align:center;z-index:200;box-shadow:0 24px 80px rgba(0,0,0,0.9);animation:popIn 0.3s ease;min-width:340px;}
+  #toast.win{border-color:#2ed573;}
+  #toast.done{border-color:#a78bfa;}
+  @keyframes popIn{from{transform:translate(-50%,-50%) scale(0.8);opacity:0;}to{transform:translate(-50%,-50%) scale(1);opacity:1;}}
+  .t-icon{font-size:3rem;margin-bottom:8px;}
+  .t-title{font-size:1.4rem;font-weight:800;margin-bottom:4px;}
+  .t-sub{font-size:0.82rem;color:var(--muted);margin-bottom:12px;}
+  .t-score{font-size:2.6rem;font-weight:900;margin-bottom:16px;}
+  .t-rows{display:flex;gap:20px;justify-content:center;margin-bottom:16px;}
+  .t-stat{text-align:center;}
+  .t-stat-val{font-size:1.2rem;font-weight:700;}
+  .t-stat-lbl{font-size:0.65rem;color:var(--muted);margin-top:2px;}
+  #toast button{background:rgba(255,255,255,0.1);color:var(--text);padding:8px 24px;border-radius:8px;font-size:0.85rem;cursor:pointer;width:auto;flex:none;border:1px solid var(--border);}
+
+  ::-webkit-scrollbar{width:3px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px;}
 </style>
 </head>
 <body>
 
-<header>
-  <div class="logo">
-    <div class="logo-icon">
-      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="18" cy="18" r="17" stroke="#00e5ff" stroke-width="1.5" opacity="0.4"/>
-        <path d="M6 18 Q9 10 12 18 Q15 26 18 14 Q21 2 24 18 Q27 26 30 18" stroke="#00e5ff" stroke-width="2" fill="none" stroke-linecap="round"/>
-        <circle cx="18" cy="18" r="2" fill="#00ff88"/>
-      </svg>
-    </div>
-    <div>
-      <div class="logo-text">Mood<span>Map</span></div>
-      <div class="logo-sub">Passive Mental Health Monitor</div>
-    </div>
-  </div>
-  <div class="header-stats">
-    <div class="hstat">
-      <div class="hstat-val" id="h-patients">0</div>
-      <div class="hstat-label">Patients</div>
-    </div>
-    <div class="hstat">
-      <div class="hstat-val" id="h-mean-reward">—</div>
-      <div class="hstat-label">Mean Reward</div>
-    </div>
-    <div class="hstat">
-      <div class="hstat-val" id="h-episodes">0</div>
-      <div class="hstat-label">Episodes</div>
-    </div>
-    <div class="live-badge">
-      <div class="status-dot"></div>
-      LIVE
-    </div>
-  </div>
-</header>
-
-<div class="main">
-
-  <!-- Task bar -->
-  <div class="task-bar">
-    <span class="task-label">Task:</span>
-    <button class="task-btn active" data-task="triage">triage</button>
-    <button class="task-btn" data-task="risk_stratification">risk_stratification</button>
-    <button class="task-btn" data-task="early_warning">early_warning</button>
-    <div class="sep"></div>
-    <span class="task-label">Difficulty:</span>
-    <button class="diff-btn active" data-diff="easy">easy</button>
-    <button class="diff-btn" data-diff="medium">medium</button>
-    <button class="diff-btn" data-diff="hard">hard</button>
-    <div class="sep"></div>
-    <span class="task-label">Steps:</span>
-    <select id="steps-select" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 10px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:0.72rem;cursor:pointer;">
-      <option value="3">3</option>
-      <option value="5" selected>5</option>
-      <option value="8">8</option>
-      <option value="10">10</option>
-    </select>
-    <button class="run-btn" id="run-btn">▶ Run Episode</button>
-  </div>
-
-  <!-- Stats row spanning full width -->
-  <div class="stats-row" style="grid-column:1/-1;">
-    <div class="stat-cell">
-      <div class="stat-v" id="stat-total-episodes">0</div>
-      <div class="stat-l">Total Episodes</div>
-    </div>
-    <div class="stat-cell">
-      <div class="stat-v" id="stat-mean">—</div>
-      <div class="stat-l">Avg Reward</div>
-    </div>
-    <div class="stat-cell">
-      <div class="stat-v" id="stat-best">—</div>
-      <div class="stat-l">Best Step</div>
-    </div>
-    <div class="stat-cell">
-      <div class="stat-v" id="stat-detected">0</div>
-      <div class="stat-l">High-Risk Caught</div>
+<!-- WELCOME -->
+<div id="welcome">
+  <div class="hero">
+    <div class="hero-badge">🧠 AI Mental Health · OpenEnv Hackathon</div>
+    <h1>MoodMap<br>Passive Mental Health Agent</h1>
+    <p>An AI agent analyzes passive behavioral signals from smartphones & wearables — sleep, activity, HRV, social patterns — to assess patient risk and recommend timely interventions.</p>
+    <div class="impact-row">
+      <div class="impact-card"><div class="impact-num">1B+</div><div class="impact-lbl">People with no access<br>to mental health care</div></div>
+      <div class="impact-card"><div class="impact-num">2-3wk</div><div class="impact-lbl">Early detection window<br>from passive signals</div></div>
+      <div class="impact-card"><div class="impact-num">40%</div><div class="impact-lbl">Crisis reduction with<br>early intervention</div></div>
+      <div class="impact-card"><div class="impact-num">1 in 5</div><div class="impact-lbl">Adults experience a<br>mental health condition</div></div>
     </div>
   </div>
 
-  <!-- Patient cards -->
-  <div class="patient-area" id="patient-area">
-    <div class="empty-state" id="empty-state">
-      <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
-        <circle cx="24" cy="24" r="22" stroke="#00e5ff" stroke-width="1.5"/>
-        <path d="M8 24 Q12 14 16 24 Q20 34 24 18 Q28 2 32 24 Q36 30 40 24" stroke="#00e5ff" stroke-width="2" fill="none" stroke-linecap="round"/>
-      </svg>
-      <div class="empty-title">No patients loaded</div>
-      <div class="empty-sub">Select task & difficulty, then click Run Episode</div>
+  <div class="tasks-section">
+    <div class="section-title">Choose a Task</div>
+    <div class="task-grid">
+      <div class="task-card triage selected" onclick="selectTask('triage','easy',this)">
+        <div class="task-header"><span class="task-icon">🔢</span><span class="task-diff easy">Easy</span></div>
+        <div class="task-name">Patient Triage</div>
+        <div class="task-desc">Prioritize patients by urgency from clear behavioral signal patterns. Match urgency level (low/medium/high/critical) to true patient risk.</div>
+        <div class="task-context">💡 Low noise · Clear risk indicators · 5 patients per episode</div>
+      </div>
+      <div class="task-card risk_stratification" onclick="selectTask('risk_stratification','medium',this)">
+        <div class="task-header"><span class="task-icon">📊</span><span class="task-diff medium">Medium</span></div>
+        <div class="task-name">Risk Stratification</div>
+        <div class="task-desc">Classify patients into risk tiers using noisy, partially conflicting signals. Requires nuanced interpretation of behavioral drift patterns.</div>
+        <div class="task-context">💡 Moderate noise · Conflicting signals · HRV + sleep + social</div>
+      </div>
+      <div class="task-card early_warning" onclick="selectTask('early_warning','hard',this)">
+        <div class="task-header"><span class="task-icon">⚠️</span><span class="task-diff hard">Hard</span></div>
+        <div class="task-name">Early Warning Detection</div>
+        <div class="task-desc">Detect deterioration before it becomes critical. High noise, limited history. Missing high-risk patients is severely penalized.</div>
+        <div class="task-context">💡 High noise · Limited history · False negatives penalized heavily</div>
+      </div>
     </div>
   </div>
 
-  <!-- Right panel -->
-  <div class="right-panel">
+  <div class="signals-section">
+    <div class="section-title">Behavioral Signals Monitored</div>
+    <div class="signals-grid">
+      <div class="signal-card"><div class="signal-name">😴 Sleep Hours</div><div class="signal-desc">Normal: 7-9h. Under 5h or over 10h signals risk.</div></div>
+      <div class="signal-card"><div class="signal-name">🚶 Activity Steps</div><div class="signal-desc">Normal: 5,000-10,000. Under 2,000 indicates sedentary depression risk.</div></div>
+      <div class="signal-card"><div class="signal-name">📱 Screen Time</div><div class="signal-desc">Over 8h/day correlates with anxiety and mood disorders.</div></div>
+      <div class="signal-card"><div class="signal-name">🤝 Social Interactions</div><div class="signal-desc">Under 2/day signals withdrawal — key depression indicator.</div></div>
+      <div class="signal-card"><div class="signal-name">💓 HRV (ms)</div><div class="signal-desc">Low HRV under 20ms = autonomic stress and anxiety.</div></div>
+      <div class="signal-card"><div class="signal-name">📲 App Usage Variance</div><div class="signal-desc">High variance over 0.6 may indicate manic episodes.</div></div>
+      <div class="signal-card"><div class="signal-name">⌨️ Typing Speed Change</div><div class="signal-desc">Slowing below -0.15 correlates with psychomotor retardation.</div></div>
+      <div class="signal-card"><div class="signal-name">🗺️ Location Entropy</div><div class="signal-desc">Under 0.3 indicates social isolation and restricted mobility.</div></div>
+    </div>
+  </div>
 
-    <!-- Leaderboard -->
-    <div class="panel-section">
-      <div class="panel-title">⬆ Episode Leaderboard</div>
-      <div id="leaderboard">
-        <div style="font-size:0.65rem;color:var(--text-dim);text-align:center;padding:12px 0;">No episodes yet</div>
+  <div class="start-wrap">
+    <button class="btn-start" onclick="startDashboard()">▶ Start Assessment</button>
+    <div class="start-hint">The AI agent will analyze patients and recommend interventions — watch it in real time</div>
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+  <header>
+    <div class="hdr-left">
+      <button class="hdr-back" onclick="goBack()">← Back</button>
+      <div>
+        <h1 id="hdr-task-name">MoodMap Mental Health Agent</h1>
+        <p id="hdr-task-desc">Passive behavioral signal analysis</p>
+      </div>
+    </div>
+    <div class="hdr-right">
+      <div class="hdr-stat">
+        <div class="hdr-val" id="h-score" style="background:linear-gradient(135deg,#a78bfa,#2ed573);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">—</div>
+        <div class="hdr-lbl">Score</div>
+      </div>
+      <div class="hdr-stat">
+        <div class="hdr-val" id="h-step" style="color:#a78bfa;">0/5</div>
+        <div class="hdr-lbl">Step</div>
+      </div>
+      <div class="hdr-stat">
+        <div class="hdr-val" id="h-last-score" style="color:#ffa502;">—</div>
+        <div class="hdr-lbl">Last Score</div>
+      </div>
+      <span class="badge" id="status-badge" style="background:#444">IDLE</span>
+    </div>
+  </header>
+
+  <div id="toast">
+    <div class="t-icon" id="t-icon">🎉</div>
+    <div class="t-title" id="t-title">Episode Complete</div>
+    <div class="t-sub" id="t-sub"></div>
+    <div class="t-score" id="t-score"></div>
+    <div class="t-rows">
+      <div class="t-stat"><div class="t-stat-val" id="t-steps">—</div><div class="t-stat-lbl">Steps Taken</div></div>
+      <div class="t-stat"><div class="t-stat-val" id="t-mean">—</div><div class="t-stat-lbl">Mean Reward</div></div>
+    </div>
+    <button onclick="document.getElementById('toast').style.display='none'">View Results</button>
+  </div>
+
+  <div class="layout">
+
+    <!-- LEFT -->
+    <div class="left-panel">
+      <div class="card">
+        <div class="task-info-box" id="task-info-box">
+          <div class="task-active-name" id="task-active-name">—</div>
+          <div class="task-active-desc" id="task-active-desc">Press Start to begin</div>
+        </div>
+        <button class="btn-primary" onclick="resetEnv()">▶ Start / Reset</button>
+        <div class="btn-row">
+          <button class="btn-step" id="btn-step" onclick="stepOnce()" disabled>⏭ Step</button>
+          <button class="btn-auto" id="btn-auto" onclick="toggleAuto()" disabled>⚡ Auto</button>
+        </div>
+        <div class="speed-row">
+          <label>Speed</label>
+          <input type="range" id="speed-slider" min="300" max="2000" value="900" step="100">
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Episode Progress</h3>
+        <div class="stat-row">
+          <span class="stat-label">Step</span>
+          <span class="stat-value" id="s-step">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Episode Score</span>
+          <span class="stat-value good" id="s-score">—</span>
+        </div>
+        <div class="prog-wrap">
+          <div class="prog-label"><span>Overall score</span><span id="score-pct">—</span></div>
+          <div class="progress-bar"><div class="progress-fill fill-score" id="score-bar" style="width:0%"></div></div>
+        </div>
+        <div class="stat-row" style="margin-top:7px">
+          <span class="stat-label">Last Grader Score</span>
+          <span class="stat-value warn" id="s-last-grader">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-label">Mean Reward</span>
+          <span class="stat-value" id="s-mean-reward" style="color:#a78bfa">—</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Task</h3>
+        <div class="stat-row"><span class="stat-label">Name</span><span class="stat-value" id="s-task-name" style="color:#a78bfa;font-size:0.75rem">—</span></div>
+        <div class="stat-row"><span class="stat-label">Difficulty</span><span class="stat-value" id="s-difficulty">—</span></div>
+        <div class="stat-row"><span class="stat-label">Episode ID</span><span class="stat-value" id="s-episode-id" style="font-size:0.62rem;color:var(--muted)">—</span></div>
       </div>
     </div>
 
-    <!-- Live log -->
-    <div class="log-section">
-      <div class="panel-title">⚡ Live Log</div>
-      <div class="log-container" id="log-container">
-        <div class="log-line info">// MoodMap v1.0.0 — OpenEnv environment ready</div>
-        <div class="log-line info">// Click "Run Episode" to begin</div>
+    <!-- CENTER -->
+    <div class="center-panel">
+      <div id="patient-display">
+        <div class="no-patient">Press Start / Reset to load the first patient 🧠</div>
+      </div>
+
+      <div class="action-panel" id="action-panel" style="display:none">
+        <h3>📝 Submit Agent Assessment</h3>
+        <div class="risk-slider-wrap" style="margin-bottom:10px">
+          <div class="field-label" style="margin-bottom:4px">Risk Score</div>
+          <div class="risk-slider-row">
+            <input type="range" id="risk-slider" min="0.06" max="0.94" step="0.01" value="0.5" oninput="document.getElementById('risk-display').textContent=parseFloat(this.value).toFixed(2)">
+            <span class="risk-slider-val" id="risk-display">0.50</span>
+          </div>
+        </div>
+        <div class="action-fields">
+          <div class="field-group">
+            <label class="field-label">Urgency Level</label>
+            <select id="urgency-select">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Intervention</label>
+            <select id="intervention-select">
+              <option value="no_action">No Action</option>
+              <option value="psychoeducation_materials">Psychoeducation</option>
+              <option value="peer_support_referral">Peer Support</option>
+              <option value="therapist_consultation" selected>Therapist Consult</option>
+              <option value="medication_review">Medication Review</option>
+              <option value="wellness_check">Wellness Check</option>
+              <option value="crisis_hotline_referral">Crisis Hotline</option>
+              <option value="emergency_services">Emergency Services</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-top:8px">
+          <label class="field-label" style="margin-bottom:4px;display:block">Reasoning (optional)</label>
+          <textarea id="reasoning-input" rows="2" placeholder="Explain your assessment..."></textarea>
+        </div>
+        <button class="btn-submit" id="btn-submit" onclick="submitManualStep()">Submit Assessment →</button>
+      </div>
+    </div>
+
+    <!-- RIGHT -->
+    <div class="right-panel">
+      <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0;">
+        <div class="tabs">
+          <button class="tab active" id="tab-history" onclick="switchTab('history')">📋 History</button>
+          <button class="tab" id="tab-log" onclick="switchTab('log')">🔍 Log</button>
+        </div>
+        <div id="panel-history" style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden;">
+          <div class="history-list" id="history-list">
+            <div style="color:var(--muted);font-size:0.78rem;text-align:center;padding:28px 0;">No assessments yet</div>
+          </div>
+        </div>
+        <div id="panel-log" style="flex:1;display:none;flex-direction:column;min-height:0;">
+          <div id="log"><div class="log-entry info">Waiting to start...</div></div>
+        </div>
       </div>
     </div>
 
   </div>
-
 </div>
 
 <script>
-// ── State ─────────────────────────────────────────────────────────────────
-const state = {
-  task: 'triage',
-  difficulty: 'easy',
-  steps: 5,
-  sessionId: null,
-  currentStep: 0,
-  maxSteps: 5,
-  running: false,
-  totalEpisodes: 0,
-  allRewards: [],
-  highRiskCaught: 0,
-  leaderboard: [],
-  patientCards: [],
+let autoInterval=null, isRunning=false, episodeDone=false, currentObs=null;
+let selectedTask='triage', selectedDiff='easy';
+let stepCount=0, maxSteps=5, rewardSum=0;
+let historyData=[];
+
+const TASK_META={
+  triage:{name:'Patient Triage',desc:'🔢 Easy · Clear signals · 5 patients',color:'#06b6d4'},
+  risk_stratification:{name:'Risk Stratification',desc:'📊 Medium · Noisy signals · 5 patients',color:'#8b5cf6'},
+  early_warning:{name:'Early Warning Detection',desc:'⚠️ Hard · High noise · 5 patients',color:'#f59e0b'},
 };
 
-// ── API helpers ───────────────────────────────────────────────────────────
-const API = window.location.origin;
-
-async function apiReset(task, difficulty, maxSteps) {
-  const r = await fetch(`${API}/reset`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({task, difficulty, max_steps: maxSteps}),
-  });
-  return r.json();
+function selectTask(task,diff,el){
+  selectedTask=task; selectedDiff=diff;
+  document.querySelectorAll('.task-card').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
 }
 
-async function apiStep(sessionId, obs, action) {
-  const r = await fetch(`${API}/step`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      session_id: sessionId,
-      patient_id: obs.patient_id,
-      risk_score: action.risk_score,
-      recommended_intervention: action.recommended_intervention,
-      urgency_level: action.urgency_level,
-      reasoning: action.reasoning,
-      confidence: action.confidence,
-    }),
-  });
-  return r.json();
+function startDashboard(){
+  document.getElementById('welcome').style.display='none';
+  document.getElementById('dashboard').style.display='flex';
+  const m=TASK_META[selectedTask];
+  document.getElementById('task-active-name').textContent=m.name;
+  document.getElementById('task-active-desc').textContent=m.desc;
+  document.getElementById('hdr-task-name').textContent=m.name;
+  document.getElementById('hdr-task-desc').textContent='Passive behavioral signal analysis · '+selectedDiff;
+  resetEnv();
 }
 
-// ── Simulated LLM agent (demo mode — no real API key needed) ──────────────
-function simulateAgent(obs) {
-  const s = obs.signals;
-  
-  // Heuristic risk score from signals
-  let risk = 0.0;
-  risk += Math.max(0, (7 - s.sleep_hours) / 7) * 0.20;
-  risk += Math.max(0, (5000 - s.activity_steps) / 5000) * 0.15;
-  risk += Math.min(1, s.screen_time_hours / 10) * 0.12;
-  risk += Math.max(0, (5 - s.social_interactions) / 5) * 0.15;
-  risk += Math.max(0, (50 - s.heart_rate_variability) / 50) * 0.15;
-  risk += s.app_usage_variance * 0.10;
-  risk += Math.max(0, -s.typing_speed_change) * 0.08;
-  risk += Math.max(0, 1 - s.location_entropy) * 0.05;
-  
-  // Clamp to (0.08, 0.92)
-  risk = Math.max(0.08, Math.min(0.92, risk + (Math.random() - 0.5) * 0.12));
-  risk = Math.round(risk * 1000) / 1000;
+function goBack(){
+  stopAuto(); isRunning=false; episodeDone=false;
+  document.getElementById('dashboard').style.display='none';
+  document.getElementById('welcome').style.display='flex';
+  document.getElementById('toast').style.display='none';
+}
 
-  const interventions = ['no_action','psychoeducation_materials','peer_support_referral',
-    'therapist_consultation','crisis_hotline_referral','emergency_services'];
-  const urgencies = ['low','medium','high','critical'];
+function switchTab(t){
+  document.getElementById('tab-history').classList.toggle('active',t==='history');
+  document.getElementById('tab-log').classList.toggle('active',t==='log');
+  document.getElementById('panel-history').style.display=t==='history'?'flex':'none';
+  document.getElementById('panel-log').style.display=t==='log'?'flex':'none';
+}
 
-  const iIdx = Math.min(5, Math.floor(risk * 6));
-  const uIdx = risk < 0.3 ? 0 : risk < 0.55 ? 1 : risk < 0.80 ? 2 : 3;
+// ── Greedy auto action ────────────────────────────────────────
+function greedyAction(obs){
+  if(!obs) return null;
+  const s=obs;
+  const sleep=s.sleep_hours||7, steps_count=s.activity_steps||6000,
+    screen=s.screen_time_hours||4, social=s.social_interactions||5,
+    hrv=s.heart_rate_variability||35, location=s.location_entropy||0.6,
+    typing=s.typing_speed_change||0, prior=s.prior_episodes||0;
 
-  const confidence = Math.max(0.12, Math.min(0.90, 0.85 - Math.abs(risk - 0.5) * 0.4 + Math.random() * 0.1));
+  // Heuristic risk score
+  let risk=0.3;
+  if(sleep<5) risk+=0.18; else if(sleep<6.5) risk+=0.1;
+  if(steps_count<2000) risk+=0.15; else if(steps_count<4000) risk+=0.08;
+  if(screen>9) risk+=0.12; else if(screen>7) risk+=0.06;
+  if(social<2) risk+=0.14; else if(social<3) risk+=0.07;
+  if(hrv<20) risk+=0.14; else if(hrv<30) risk+=0.07;
+  if(location<0.3) risk+=0.1;
+  if(typing<-0.15) risk+=0.1;
+  if(prior>2) risk+=0.08;
+  risk=Math.max(0.06,Math.min(0.94,risk));
 
-  return {
-    risk_score: risk,
-    recommended_intervention: interventions[iIdx],
-    urgency_level: urgencies[uIdx],
-    reasoning: `Heuristic analysis: sleep=${s.sleep_hours.toFixed(1)}h, activity=${s.activity_steps} steps, HRV=${s.heart_rate_variability.toFixed(1)}ms. Combined risk indicators suggest ${urgencies[uIdx]} urgency.`,
-    confidence: Math.round(confidence * 1000) / 1000,
+  let urgency='low', intervention='no_action';
+  if(risk<0.3){urgency='low';intervention='no_action';}
+  else if(risk<0.55){urgency='medium';intervention='psychoeducation_materials';}
+  else if(risk<0.75){urgency='high';intervention='therapist_consultation';}
+  else{urgency='critical';intervention='crisis_hotline_referral';}
+  if(risk>0.88) intervention='emergency_services';
+
+  return{
+    patient_id:String(s.patient_id||'auto'),
+    risk_score:Math.round(risk*100)/100,
+    recommended_intervention:intervention,
+    urgency_level:urgency,
+    reasoning:'Heuristic analysis of behavioral signals',
+    confidence:Math.max(0.06,Math.min(0.94,0.6+Math.random()*0.2)),
   };
 }
 
-// ── Reward color ──────────────────────────────────────────────────────────
-function rewardColor(r) {
-  if (r >= 0.75) return 'var(--risk-low)';
-  if (r >= 0.55) return 'var(--accent-cyan)';
-  if (r >= 0.35) return 'var(--risk-med)';
-  return 'var(--risk-crit)';
+// ── API ───────────────────────────────────────────────────────
+async function resetEnv(){
+  stopAuto(); episodeDone=false; stepCount=0; rewardSum=0; historyData=[];
+  document.getElementById('toast').style.display='none';
+  document.getElementById('action-panel').style.display='none';
+  document.getElementById('patient-display').innerHTML='<div class="no-patient">Loading patient data... 🧠</div>';
+  setBadge('LOADING','#ffa502');
+  addLog('info',`Starting task: ${selectedTask} (${selectedDiff})...`);
+  try{
+    const r=await fetch('/reset',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({task:selectedTask,difficulty:selectedDiff})});
+    const data=await r.json();
+    currentObs=data.observation;
+    isRunning=true;
+    stepCount=0; maxSteps=data.max_steps||5;
+    document.getElementById('btn-step').disabled=false;
+    document.getElementById('btn-auto').disabled=false;
+    document.getElementById('s-task-name').textContent=data.task;
+    document.getElementById('s-difficulty').textContent=data.difficulty;
+    document.getElementById('s-episode-id').textContent=(data.episode_id||'').slice(0,14)+'...';
+    document.getElementById('s-step').textContent=`0 / ${maxSteps}`;
+    document.getElementById('h-step').textContent=`0/${maxSteps}`;
+    setBadge('READY','#2ed573');
+    addLog('success',`Episode started — ${data.task} task, episode ${(data.episode_id||'').slice(-8)}`);
+    renderPatient(currentObs);
+    document.getElementById('action-panel').style.display='block';
+    renderHistory();
+    updateScore(0.5);
+  }catch(e){addLog('error','Failed to start: '+e.message);setBadge('ERROR','#ff4757');}
 }
 
-function riskColor(r) {
-  if (r < 0.30) return 'var(--risk-low)';
-  if (r < 0.55) return 'var(--risk-med)';
-  if (r < 0.78) return 'var(--risk-high)';
-  return 'var(--risk-crit)';
+async function submitStep(action){
+  if(!isRunning||episodeDone) return;
+  try{
+    const r=await fetch('/step',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(action)});
+    const data=await r.json();
+    stepCount++;
+    rewardSum+=data.reward||0;
+
+    const gs=data.grader_score||0.5;
+    document.getElementById('h-last-score').textContent=gs.toFixed(3);
+    document.getElementById('s-last-grader').textContent=gs.toFixed(3);
+    document.getElementById('s-mean-reward').textContent=(rewardSum/stepCount).toFixed(3);
+    document.getElementById('s-step').textContent=`${stepCount} / ${maxSteps}`;
+    document.getElementById('h-step').textContent=`${stepCount}/${maxSteps}`;
+
+    historyData.push({
+      step:stepCount,
+      grader_score:gs,
+      reward:data.reward,
+      urgency:action.urgency_level,
+      intervention:action.recommended_intervention,
+      risk_score:action.risk_score,
+    });
+    renderHistory();
+
+    const logColor=gs>0.7?'success':gs>0.45?'info':'warn';
+    addLog(logColor,`[${stepCount}] Risk:${action.risk_score.toFixed(2)} Urgency:${action.urgency_level} → Score:${gs.toFixed(3)}`);
+
+    // Update grader
+    try{
+      const gr=await(await fetch('/grader')).json();
+      updateScore(gr.score);
+    }catch(e){}
+
+    if(data.done){
+      episodeDone=true; stopAuto();
+      const gr=await(await fetch('/grader')).json();
+      updateScore(gr.score);
+      showToast(gr);
+      setBadge('DONE','#a78bfa');
+      document.getElementById('action-panel').style.display='none';
+    } else {
+      currentObs=data.observation;
+      renderPatient(currentObs);
+    }
+  }catch(e){addLog('error','Step error: '+e.message);}
 }
 
-function riskClass(r) {
-  if (r < 0.30) return 'risk-low';
-  if (r < 0.55) return 'risk-medium';
-  if (r < 0.78) return 'risk-high';
-  return 'risk-critical';
+async function stepOnce(){
+  if(!isRunning||episodeDone||!currentObs) return;
+  const action=greedyAction(currentObs);
+  await submitStep(action);
 }
 
-function urgencyClass(u) {
-  return 'urg-' + (u || 'medium').toLowerCase();
+async function submitManualStep(){
+  if(!isRunning||episodeDone||!currentObs) return;
+  const action={
+    patient_id:String(currentObs.patient_id||'manual'),
+    risk_score:parseFloat(document.getElementById('risk-slider').value),
+    recommended_intervention:document.getElementById('intervention-select').value,
+    urgency_level:document.getElementById('urgency-select').value,
+    reasoning:document.getElementById('reasoning-input').value||'Manual assessment',
+    confidence:0.7,
+  };
+  document.getElementById('btn-submit').disabled=true;
+  await submitStep(action);
+  document.getElementById('btn-submit').disabled=false;
+  document.getElementById('reasoning-input').value='';
 }
 
-// ── Signal bar helpers ────────────────────────────────────────────────────
-function signalBar(val, min, max, color) {
-  const pct = Math.max(0, Math.min(100, (val - min) / (max - min) * 100));
-  return `<div class="signal-bar"><div class="signal-fill" style="width:${pct}%;background:${color}"></div></div>`;
+function toggleAuto(){
+  if(autoInterval){stopAuto();return;}
+  const btn=document.getElementById('btn-auto');btn.textContent='⏹ Stop';btn.className='btn-stop';
+  const delay=()=>Math.max(200,2100-+document.getElementById('speed-slider').value);
+  function tick(){if(episodeDone){stopAuto();return;}stepOnce();autoInterval=setTimeout(tick,delay());}
+  autoInterval=setTimeout(tick,delay());
+}
+function stopAuto(){
+  if(autoInterval){clearTimeout(autoInterval);autoInterval=null;}
+  const btn=document.getElementById('btn-auto');btn.textContent='⚡ Auto';btn.className='btn-auto';
 }
 
-// ── Render patient card ───────────────────────────────────────────────────
-function renderCard(obs, action, result) {
-  const r = action.risk_score;
-  const reward = result ? result.reward : null;
-  const bd = result ? result.reward_breakdown : null;
+function updateScore(score){
+  const s=typeof score==='number'?score:0.5;
+  document.getElementById('h-score').textContent=s.toFixed(3);
+  document.getElementById('s-score').textContent=s.toFixed(3);
+  document.getElementById('score-bar').style.width=(s*100)+'%';
+  document.getElementById('score-pct').textContent=(s*100).toFixed(0)+'%';
+}
 
-  const s = obs.signals;
+function showToast(gr){
+  const score=gr.score||0.5, mean=gr.mean_reward||0.5;
+  const win=score>=0.7;
+  const t=document.getElementById('toast');
+  t.className=win?'win':'done';
+  document.getElementById('t-icon').textContent=win?'🎉':'🧠';
+  document.getElementById('t-title').textContent=win?'Excellent Assessment!':'Episode Complete';
+  document.getElementById('t-sub').textContent=win?'Strong performance on patient risk assessment!':'Episode finished. Review results.';
+  const sc=document.getElementById('t-score');sc.textContent=score.toFixed(3);sc.style.color=win?'#2ed573':'#a78bfa';
+  document.getElementById('t-steps').textContent=stepCount;
+  document.getElementById('t-mean').textContent=mean.toFixed(3);
+  t.style.display='block';
+}
 
-  return `
-  <div class="${riskClass(r)}">
-    <div class="patient-card">
-      <div class="card-header">
-        <div>
-          <div class="patient-id">${obs.patient_id}</div>
-          <div class="patient-meta">${obs.age}y · ${obs.gender} · ${obs.history_days}d history · ${obs.prior_episodes} prior eps</div>
-          <div class="patient-meta" style="margin-top:3px">
-            <span class="urgency-badge ${urgencyClass(action.urgency_level)}">${action.urgency_level}</span>
-          </div>
-        </div>
-        <div class="risk-badge">
-          <div>
-            <div class="risk-score-display" style="color:${riskColor(r)}">${r.toFixed(2)}</div>
-            <div class="risk-label">RISK<br>SCORE</div>
-          </div>
-        </div>
-      </div>
+// ── Render patient signals ─────────────────────────────────────
+function signalClass(val,low,warn){
+  if(val<=low) return 'risk-high';
+  if(val<=warn) return 'risk-warn';
+  return 'risk-ok';
+}
 
-      <div class="signals-grid">
-        <div class="signal-row">
-          <div class="signal-label"><span>Sleep</span><span class="signal-val">${s.sleep_hours.toFixed(1)}h</span></div>
-          ${signalBar(s.sleep_hours, 2, 12, s.sleep_hours < 5 ? 'var(--risk-crit)' : 'var(--risk-low)')}
-        </div>
-        <div class="signal-row">
-          <div class="signal-label"><span>Steps</span><span class="signal-val">${s.activity_steps.toLocaleString()}</span></div>
-          ${signalBar(s.activity_steps, 0, 12000, s.activity_steps < 3000 ? 'var(--risk-med)' : 'var(--risk-low)')}
-        </div>
-        <div class="signal-row">
-          <div class="signal-label"><span>Screen</span><span class="signal-val">${s.screen_time_hours.toFixed(1)}h</span></div>
-          ${signalBar(s.screen_time_hours, 0, 12, s.screen_time_hours > 7 ? 'var(--risk-high)' : 'var(--accent-cyan)')}
-        </div>
-        <div class="signal-row">
-          <div class="signal-label"><span>Social</span><span class="signal-val">${s.social_interactions}</span></div>
-          ${signalBar(s.social_interactions, 0, 12, s.social_interactions < 3 ? 'var(--risk-crit)' : 'var(--risk-low)')}
-        </div>
-        <div class="signal-row">
-          <div class="signal-label"><span>HRV</span><span class="signal-val">${s.heart_rate_variability.toFixed(0)}ms</span></div>
-          ${signalBar(s.heart_rate_variability, 10, 90, s.heart_rate_variability < 30 ? 'var(--risk-high)' : 'var(--accent-cyan)')}
-        </div>
-        <div class="signal-row">
-          <div class="signal-label"><span>Loc.Entropy</span><span class="signal-val">${s.location_entropy.toFixed(2)}</span></div>
-          ${signalBar(s.location_entropy, 0, 1, 'var(--accent-purple)')}
-        </div>
-      </div>
+function renderPatient(obs){
+  if(!obs){document.getElementById('patient-display').innerHTML='<div class="no-patient">No patient data</div>';return;}
+  const pid=obs.patient_id||'Unknown', age=obs.age||'?', gender=obs.gender||'?';
+  const sig=obs.signals||obs;
+  const sleep=sig.sleep_hours, steps=sig.activity_steps, screen=sig.screen_time_hours,
+    social=sig.social_interactions, hrv=sig.heart_rate_variability,
+    appVar=sig.app_usage_variance, typing=sig.typing_speed_change, locEnt=sig.location_entropy;
 
-      ${bd ? `
-      <div style="margin-bottom:10px">
-        <div class="breakdown-row"><span class="bd-label">detection</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.detection*100}%;background:var(--accent-cyan)"></div></div><span class="bd-val">${bd.detection.toFixed(3)}</span></div>
-        <div class="breakdown-row"><span class="bd-label">intervention</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.intervention*100}%;background:var(--accent-green)"></div></div><span class="bd-val">${bd.intervention.toFixed(3)}</span></div>
-        <div class="breakdown-row"><span class="bd-label">timeliness</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.timeliness*100}%;background:var(--accent-amber)"></div></div><span class="bd-val">${bd.timeliness.toFixed(3)}</span></div>
-        <div class="breakdown-row"><span class="bd-label">harm_avoid</span><div class="bd-bar"><div class="bd-fill" style="width:${bd.harm_avoidance*100}%;background:var(--accent-purple)"></div></div><span class="bd-val">${bd.harm_avoidance.toFixed(3)}</span></div>
-      </div>
-      ` : `<div style="height:8px"></div>`}
-
-      <div class="card-footer">
-        <span class="intervention-tag">${action.recommended_intervention.replace(/_/g,' ')}</span>
-        ${reward !== null ? `
-          <div class="reward-display">
-            <span class="reward-label">reward</span>
-            <span class="reward-val" style="color:${rewardColor(reward)}">${reward.toFixed(4)}</span>
-          </div>
-        ` : '<div class="spinner"></div>'}
+  const html=`
+    <div class="patient-header">
+      <div class="patient-id">🧑 Patient: ${pid}</div>
+      <div class="patient-meta">
+        <span>Age: <b>${age}</b></span>
+        <span>Gender: <b>${gender}</b></span>
+        <span>Prior Episodes: <b>${obs.prior_episodes||0}</b></span>
+        <span>History: <b>${obs.history_days||30} days</b></span>
+        <span>Medication Adherence: <b>${obs.medication_adherence!==undefined?Math.round(obs.medication_adherence*100)+'%':'?'}</b></span>
+        <span>Baseline Mood: <b>${obs.baseline_mood_score!==undefined?obs.baseline_mood_score.toFixed(2):'?'}</b></span>
       </div>
     </div>
-  </div>`;
-}
-
-// ── Log helpers ───────────────────────────────────────────────────────────
-function log(msg, type = 'info') {
-  const el = document.getElementById('log-container');
-  const line = document.createElement('div');
-  line.className = `log-line ${type}`;
-  line.textContent = msg;
-  el.appendChild(line);
-  el.scrollTop = el.scrollHeight;
-}
-
-// ── Update stats ──────────────────────────────────────────────────────────
-function updateStats() {
-  document.getElementById('h-patients').textContent = state.patientCards.length;
-  document.getElementById('h-episodes').textContent = state.totalEpisodes;
-  document.getElementById('stat-total-episodes').textContent = state.totalEpisodes;
-  document.getElementById('stat-detected').textContent = state.highRiskCaught;
-
-  if (state.allRewards.length > 0) {
-    const mean = state.allRewards.reduce((a,b) => a+b, 0) / state.allRewards.length;
-    const best = Math.max(...state.allRewards);
-    document.getElementById('h-mean-reward').textContent = mean.toFixed(3);
-    document.getElementById('stat-mean').textContent = mean.toFixed(3);
-    document.getElementById('stat-best').textContent = best.toFixed(3);
-  }
-}
-
-// ── Leaderboard ───────────────────────────────────────────────────────────
-function updateLeaderboard(epData) {
-  state.leaderboard.push(epData);
-  state.leaderboard.sort((a,b) => b.mean - a.mean);
-  const top = state.leaderboard.slice(0, 8);
-
-  const ranks = ['first','second','third'];
-  const el = document.getElementById('leaderboard');
-  el.innerHTML = top.map((e, i) => `
-    <div class="leaderboard-row">
-      <div class="lb-rank ${ranks[i] || ''}">${i+1}</div>
-      <div style="flex:1">
-        <div class="lb-name">Ep ${e.epNum}</div>
-        <div class="lb-task">${e.task} / ${e.diff}</div>
+    <div style="margin-top:8px">
+      <div style="font-size:0.62rem;text-transform:uppercase;letter-spacing:0.12em;color:var(--muted);margin-bottom:8px;">Behavioral Signals</div>
+      <div class="signals-grid-dash">
+        <div class="signal-cell ${sleep!==undefined&&sleep<5?'risk-high':sleep!==undefined&&sleep<6.5?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${sleep!==undefined?sleep.toFixed(1):'—'}</div>
+          <div class="signal-lbl">😴 Sleep (h)</div>
+        </div>
+        <div class="signal-cell ${steps!==undefined&&steps<2000?'risk-high':steps!==undefined&&steps<4000?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${steps!==undefined?Math.round(steps).toLocaleString():'—'}</div>
+          <div class="signal-lbl">🚶 Steps</div>
+        </div>
+        <div class="signal-cell ${screen!==undefined&&screen>9?'risk-high':screen!==undefined&&screen>7?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${screen!==undefined?screen.toFixed(1):'—'}</div>
+          <div class="signal-lbl">📱 Screen (h)</div>
+        </div>
+        <div class="signal-cell ${social!==undefined&&social<2?'risk-high':social!==undefined&&social<3?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${social!==undefined?social.toFixed(1):'—'}</div>
+          <div class="signal-lbl">🤝 Social</div>
+        </div>
+        <div class="signal-cell ${hrv!==undefined&&hrv<20?'risk-high':hrv!==undefined&&hrv<30?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${hrv!==undefined?hrv.toFixed(1):'—'}</div>
+          <div class="signal-lbl">💓 HRV (ms)</div>
+        </div>
+        <div class="signal-cell ${appVar!==undefined&&appVar>0.6?'risk-high':appVar!==undefined&&appVar>0.4?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${appVar!==undefined?appVar.toFixed(2):'—'}</div>
+          <div class="signal-lbl">📲 App Variance</div>
+        </div>
+        <div class="signal-cell ${typing!==undefined&&typing<-0.15?'risk-high':typing!==undefined&&typing<-0.05?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${typing!==undefined?typing.toFixed(2):'—'}</div>
+          <div class="signal-lbl">⌨️ Typing Δ</div>
+        </div>
+        <div class="signal-cell ${locEnt!==undefined&&locEnt<0.3?'risk-high':locEnt!==undefined&&locEnt<0.5?'risk-warn':'risk-ok'}">
+          <div class="signal-val">${locEnt!==undefined?locEnt.toFixed(2):'—'}</div>
+          <div class="signal-lbl">🗺️ Location</div>
+        </div>
       </div>
-      <div class="lb-score">${e.mean.toFixed(4)}</div>
     </div>
-  `).join('');
+  `;
+  document.getElementById('patient-display').innerHTML=html;
 }
 
-// ── MAIN RUN EPISODE ─────────────────────────────────────────────────────
-async function runEpisode() {
-  if (state.running) return;
-  state.running = true;
-
-  const btn = document.getElementById('run-btn');
-  btn.disabled = true;
-  btn.textContent = '⟳ Running…';
-
-  const task = state.task;
-  const difficulty = state.difficulty;
-  const maxSteps = parseInt(document.getElementById('steps-select').value);
-
-  // Clear cards
-  const area = document.getElementById('patient-area');
-  area.innerHTML = '';
-
-  log(`────────────────────────────────────────`, 'info');
-  log(`[START] task=${task} diff=${difficulty} steps=${maxSteps}`, 'start');
-
-  // Reset
-  let resetData;
-  try {
-    resetData = await apiReset(task, difficulty, maxSteps);
-  } catch(e) {
-    log(`[ERROR] Cannot reach API: ${e.message}`, 'warn');
-    log(`Running in DEMO mode (simulated rewards)`, 'info');
-    resetData = runDemoMode(task, difficulty, maxSteps);
-    await demoRun(task, difficulty, maxSteps, area);
-    finishEpisode(btn);
+function renderHistory(){
+  const list=document.getElementById('history-list');
+  if(historyData.length===0){
+    list.innerHTML='<div style="color:var(--muted);font-size:0.78rem;text-align:center;padding:28px 0;">No assessments yet</div>';
     return;
   }
-
-  if (resetData.detail) {
-    log(`[ERROR] ${resetData.detail}`, 'warn');
-    await demoRun(task, difficulty, maxSteps, area);
-    finishEpisode(btn);
-    return;
-  }
-
-  state.sessionId = resetData.session_id;
-  state.totalEpisodes++;
-
-  let obs = resetData.observation;
-  let stepRewards = [];
-
-  for (let i = 0; i < maxSteps; i++) {
-    const action = simulateAgent(obs);
-
-    // Show card (pending)
-    const cardHtml = renderCard(obs, action, null);
-    const cardDiv = document.createElement('div');
-    cardDiv.innerHTML = cardHtml;
-    area.appendChild(cardDiv);
-    area.scrollTop = area.scrollHeight;
-
-    log(`[STEP] ${i+1}/${maxSteps} patient=${obs.patient_id} risk=${action.risk_score.toFixed(3)}`, 'step');
-
-    let result;
-    try {
-      result = await apiStep(state.sessionId, obs, action);
-    } catch(e) {
-      log(`[WARN] Step failed: ${e.message} — using demo reward`, 'warn');
-      result = { reward: Math.max(0.05, Math.min(0.95, 0.4 + Math.random() * 0.4)), reward_breakdown: { detection: 0.5, intervention: 0.5, timeliness: 0.5, harm_avoidance: 0.9 }, done: i === maxSteps-1 };
-    }
-
-    const reward = result.reward;
-    stepRewards.push(reward);
-    state.allRewards.push(reward);
-
-    if (action.risk_score > 0.70) state.highRiskCaught++;
-
-    log(`  reward=${reward.toFixed(4)} | det=${result.reward_breakdown?.detection?.toFixed(3)} int=${result.reward_breakdown?.intervention?.toFixed(3)}`, 'info');
-
-    // Update card with result
-    cardDiv.innerHTML = renderCard(obs, action, result);
-    area.scrollTop = area.scrollHeight;
-
-    state.patientCards.push({obs, action, result});
-    updateStats();
-
-    if (result.done || i === maxSteps - 1) {
-      obs = null;
-      break;
-    }
-    obs = result.next_observation || obs;
-
-    await sleep(300);
-  }
-
-  const epMean = stepRewards.reduce((a,b) => a+b, 0) / stepRewards.length;
-  const epTotal = stepRewards.reduce((a,b) => a+b, 0);
-
-  log(`[END] mean_reward=${epMean.toFixed(4)} total=${epTotal.toFixed(4)}`, 'end');
-
-  updateLeaderboard({ epNum: state.totalEpisodes, task, diff: difficulty, mean: epMean, total: epTotal });
-
-  finishEpisode(btn);
+  list.innerHTML=[...historyData].reverse().map(h=>{
+    const col=h.grader_score>0.7?'#2ed573':h.grader_score>0.45?'#ffa502':'#ff4757';
+    return `<div class="history-item">
+      <div class="history-step">Step ${h.step} · Reward: ${h.reward.toFixed(3)}</div>
+      <div class="history-score" style="color:${col}">${h.grader_score.toFixed(3)} <span class="urgency-tag urgency-${h.urgency}">${h.urgency}</span></div>
+      <div class="history-detail">Risk: ${h.risk_score.toFixed(2)} · ${h.intervention.replace(/_/g,' ')}</div>
+    </div>`;
+  }).join('');
 }
 
-async function demoRun(task, difficulty, maxSteps, area) {
-  // Full demo mode — generate fake patients and rewards locally
-  const { generate_patient } = getDemoGenerator();
-  state.totalEpisodes++;
-
-  let stepRewards = [];
-
-  for (let i = 0; i < maxSteps; i++) {
-    const { obs, action } = generate_patient(task, difficulty);
-
-    const cardDiv = document.createElement('div');
-    cardDiv.innerHTML = renderCard(obs, action, null);
-    area.appendChild(cardDiv);
-    area.scrollTop = area.scrollHeight;
-
-    log(`[STEP] ${i+1}/${maxSteps} patient=${obs.patient_id} risk=${action.risk_score.toFixed(3)}`, 'step');
-
-    await sleep(400);
-
-    // Simulated reward
-    const reward = Math.max(0.06, Math.min(0.93, 0.35 + Math.random() * 0.50));
-    const bd = {
-      detection: Math.max(0.05, Math.min(0.95, reward + (Math.random()-0.5)*0.2)),
-      intervention: Math.max(0.05, Math.min(0.95, reward + (Math.random()-0.5)*0.2)),
-      timeliness: Math.max(0.05, Math.min(0.95, reward + (Math.random()-0.5)*0.2)),
-      harm_avoidance: Math.max(0.05, Math.min(0.95, 0.75 + Math.random()*0.15)),
-    };
-
-    const result = { reward, reward_breakdown: bd, done: i === maxSteps - 1 };
-
-    stepRewards.push(reward);
-    state.allRewards.push(reward);
-    if (action.risk_score > 0.70) state.highRiskCaught++;
-
-    log(`  reward=${reward.toFixed(4)}`, 'info');
-
-    cardDiv.innerHTML = renderCard(obs, action, result);
-    area.scrollTop = area.scrollHeight;
-
-    state.patientCards.push({obs, action, result});
-    updateStats();
-  }
-
-  const epMean = stepRewards.reduce((a,b)=>a+b,0)/stepRewards.length;
-  const epTotal = stepRewards.reduce((a,b)=>a+b,0);
-  log(`[END] mean_reward=${epMean.toFixed(4)} total=${epTotal.toFixed(4)}`, 'end');
-  updateLeaderboard({ epNum: state.totalEpisodes, task, diff: difficulty, mean: epMean, total: epTotal });
+function addLog(type,msg){
+  const log=document.getElementById('log');
+  const el=document.createElement('div');el.className=`log-entry ${type}`;el.textContent=msg;
+  log.appendChild(el);log.scrollTop=log.scrollHeight;
+  if(log.children.length>150)log.removeChild(log.firstChild);
 }
-
-function getDemoGenerator() {
-  const INTERVENTIONS = ['no_action','psychoeducation_materials','peer_support_referral',
-    'therapist_consultation','crisis_hotline_referral','emergency_services'];
-  const URGENCIES = ['low','medium','high','critical'];
-  const GENDERS = ['male','female','non-binary'];
-
-  function rnd(lo, hi) { return lo + Math.random() * (hi - lo); }
-  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-  function randId() { return 'PT-' + Math.random().toString(36).slice(2,10).toUpperCase(); }
-
-  function generate_patient(task, difficulty) {
-    const noiseMap = { easy: 0.05, medium: 0.20, hard: 0.45 };
-    const noise = noiseMap[difficulty] || 0.15;
-    const trueRisk = clamp(rnd(0.08, 0.92), 0.08, 0.92);
-
-    const n = (v, std, lo, hi) => clamp(v + (Math.random()-0.5)*std*2, lo, hi);
-
-    const obs = {
-      patient_id: randId(),
-      timestamp: new Date().toISOString(),
-      age: Math.floor(rnd(18, 65)),
-      gender: GENDERS[Math.floor(Math.random()*3)],
-      baseline_mood_score: parseFloat(n(0.7-trueRisk*0.4, noise*0.15, 0.1, 0.9).toFixed(3)),
-      history_days: Math.floor(rnd(7, 90)),
-      prior_episodes: Math.floor(trueRisk * 4 + Math.floor(rnd(0, 2))),
-      medication_adherence: Math.random() > 0.4 ? parseFloat(n(1-trueRisk*0.5, noise*0.3, 0, 1).toFixed(3)) : null,
-      task, difficulty,
-      signals: {
-        sleep_hours: parseFloat(n(8-trueRisk*4, noise*3, 2, 12).toFixed(2)),
-        activity_steps: Math.floor(n(8000-trueRisk*6000, noise*3000, 200, 15000)),
-        screen_time_hours: parseFloat(n(2+trueRisk*6, noise*2, 0.5, 12).toFixed(2)),
-        social_interactions: Math.floor(n(6-trueRisk*5, noise*3, 0, 15)),
-        heart_rate_variability: parseFloat(n(55-trueRisk*30, noise*15, 10, 100).toFixed(2)),
-        app_usage_variance: parseFloat(n(trueRisk*0.8, noise*0.3, 0, 1).toFixed(3)),
-        typing_speed_change: parseFloat(n(-trueRisk*0.6, noise*0.4, -1, 1).toFixed(3)),
-        location_entropy: parseFloat(n(1-trueRisk*0.7, noise*0.3, 0, 1).toFixed(3)),
-      }
-    };
-
-    const action = simulateAgent(obs);
-    return { obs, action };
-  }
-
-  return { generate_patient };
-}
-
-function runDemoMode(task, difficulty, maxSteps) {
-  log('[INFO] API unavailable — DEMO mode (simulated)', 'warn');
-}
-
-function finishEpisode(btn) {
-  state.running = false;
-  btn.disabled = false;
-  btn.textContent = '▶ Run Episode';
-}
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-// ── UI wiring ─────────────────────────────────────────────────────────────
-document.querySelectorAll('.task-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.task-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.task = btn.dataset.task;
-  });
-});
-
-document.querySelectorAll('.diff-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.diff-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    state.difficulty = btn.dataset.diff;
-  });
-});
-
-document.getElementById('run-btn').addEventListener('click', runEpisode);
-
-// Auto-run demo on load after 800ms
-setTimeout(() => {
-  log('// Dashboard loaded. Running demo episode…', 'info');
-  runEpisode();
-}, 800);
+function setBadge(text,color){const b=document.getElementById('status-badge');b.textContent=text;b.style.background=color;}
 </script>
 </body>
 </html>
