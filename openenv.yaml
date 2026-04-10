@@ -12,7 +12,7 @@ tasks:
     description: >
       Prioritize patients by urgency based on clear behavioral signal patterns.
       Signals have low noise and clear risk indicators.
-    reward_range: [0.05, 0.95]
+    score_range: [0.05, 0.95]
     grader:
       type: function
       module: graders
@@ -23,7 +23,7 @@ tasks:
     description: >
       Classify patients into risk tiers using noisy, partially conflicting signals.
       Requires nuanced interpretation of behavioral drift patterns.
-    reward_range: [0.05, 0.95]
+    score_range: [0.05, 0.95]
     grader:
       type: function
       module: graders
@@ -34,7 +34,7 @@ tasks:
     description: >
       Detect early deterioration before it becomes critical. High noise,
       limited history, and subtle signal changes require careful analysis.
-    reward_range: [0.05, 0.95]
+    score_range: [0.05, 0.95]
     grader:
       type: function
       module: graders
