@@ -12,7 +12,7 @@ tasks:
     description: >
       Prioritize patients by urgency based on clear behavioral signal patterns.
       Signals have low noise and clear risk indicators.
-    score_range: [0.05, 0.95]
+    score_range: [0.06, 0.94]
     grader:
       type: function
       module: graders
@@ -23,7 +23,7 @@ tasks:
     description: >
       Classify patients into risk tiers using noisy, partially conflicting signals.
       Requires nuanced interpretation of behavioral drift patterns.
-    score_range: [0.05, 0.95]
+    score_range: [0.06, 0.94]
     grader:
       type: function
       module: graders
@@ -34,14 +34,14 @@ tasks:
     description: >
       Detect early deterioration before it becomes critical. High noise,
       limited history, and subtle signal changes require careful analysis.
-    score_range: [0.05, 0.95]
+    score_range: [0.06, 0.94]
     grader:
       type: function
       module: graders
       function: grade_early_warning
 
 reward:
-  range: [0.05, 0.95]
+  range: [0.06, 0.94]
   components:
     - name: detection
       description: How close is the predicted risk score to the true risk?
@@ -74,11 +74,11 @@ observation_space:
 action_space:
   type: structured_json
   fields:
-    - risk_score (float, 0.05-0.95)
+    - risk_score (float, 0.06-0.94)
     - recommended_intervention (categorical)
     - urgency_level (low/medium/high/critical)
     - reasoning (free text)
-    - confidence (float, 0.05-0.95)
+    - confidence (float, 0.06-0.94)
 
 api:
   reset: POST /reset
