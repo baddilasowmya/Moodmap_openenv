@@ -13,10 +13,7 @@ tasks:
       Prioritize patients by urgency based on clear behavioral signal patterns.
       Signals have low noise and clear risk indicators.
     score_range: [0.06, 0.94]
-    grader:
-      type: function
-      module: graders
-      function: grade_triage
+    grader: graders.grade_triage
 
   - id: risk_stratification
     difficulty: medium
@@ -24,10 +21,7 @@ tasks:
       Classify patients into risk tiers using noisy, partially conflicting signals.
       Requires nuanced interpretation of behavioral drift patterns.
     score_range: [0.06, 0.94]
-    grader:
-      type: function
-      module: graders
-      function: grade_risk_stratification
+    grader: graders.grade_risk_stratification
 
   - id: early_warning
     difficulty: hard
@@ -35,10 +29,7 @@ tasks:
       Detect early deterioration before it becomes critical. High noise,
       limited history, and subtle signal changes require careful analysis.
     score_range: [0.06, 0.94]
-    grader:
-      type: function
-      module: graders
-      function: grade_early_warning
+    grader: graders.grade_early_warning
 
 reward:
   range: [0.06, 0.94]
@@ -94,7 +85,6 @@ env_vars:
   - API_BASE_URL: LLM API base URL (required)
   - MODEL_NAME: Model identifier (required)
   - HF_TOKEN: Hugging Face token (required, no default)
-  - LOCAL_IMAGE_NAME: Optional, for from_docker_image()
 
 author: MoodMap Team
 license: Apache-2.0

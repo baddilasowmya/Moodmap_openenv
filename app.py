@@ -1,193 +1,249 @@
 """
-MoodMap Passive Mental Health — OpenEnv REST API
+MoodMap Passive Mental Health — OpenEnv server using official framework.
 
-Endpoints follow the OpenEnv spec:
-  POST /reset  → start a new episode
-  POST /step   → submit an action, get reward
-  GET  /health → health check
-  GET  /info   → environment metadata
-  GET  /       → dashboard HTML
+Uses create_app() from openenv-core so all required endpoints are
+auto-registered: /reset /step /state /schema /metadata /health /ws /mcp
 """
 
+import sys
 import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
 import uuid
-from typing import Optional
-from fastapi import FastAPI, HTTPException, Body
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from typing import Any, Dict, Optional
+
+from pydantic import Field, ConfigDict
+
+from openenv.core.env_server.interfaces import Environment
+from openenv.core.env_server.types import (
+    Action,
+    Observation,
+    State,
+    EnvironmentMetadata,
+)
+from openenv.core.env_server.http_server import create_app
 
 from moodmap_env import MoodMapEnv
-from moodmap_env.models import AgentAction
-from graders import grade
+from moodmap_env.models import AgentAction as _AgentAction
 
-app = FastAPI(
-    title="MoodMap Passive Mental Health Environment",
-    description="An RL environment for passive mental health monitoring via behavioral signals.",
-    version="1.0.0",
-)
+# Import the grader functions directly
+from graders import grade_triage, grade_risk_stratification, grade_early_warning
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# In-memory session store (stateless per Hugging Face Spaces restart)
-_sessions: dict[str, MoodMapEnv] = {}
-
-VALID_TASKS        = ["triage", "risk_stratification", "early_warning"]
-VALID_DIFFICULTIES = ["easy", "medium", "hard"]
-
-# Hard score bounds — strictly open interval, never 0.0 or 1.0
-MIN_SCORE = 0.05
-MAX_SCORE = 0.95
+# ── Score bounds — must match graders/__init__.py and openenv.yaml ──────────
+MIN_SCORE = 0.06
+MAX_SCORE = 0.94
 
 
-def _clamp_score(v: float) -> float:
+def _clamp(v: float) -> float:
     return max(MIN_SCORE, min(MAX_SCORE, float(v)))
 
 
-class ResetRequest(BaseModel):
-    task:       Optional[str] = Field("triage", description="One of: triage, risk_stratification, early_warning")
-    difficulty: Optional[str] = Field("easy",   description="One of: easy, medium, hard")
-    max_steps:  Optional[int] = Field(5, ge=1, le=20)
+# ── Action model ─────────────────────────────────────────────────────────────
+
+class MoodMapAction(Action):
+    """Action submitted by the agent for a patient assessment."""
+
+    model_config = ConfigDict(extra="allow")
+
+    patient_id: str = Field(default="unknown", description="Patient identifier")
+    risk_score: float = Field(default=0.5, ge=0.0, le=1.0, description="Predicted risk score (0.06–0.94)")
+    recommended_intervention: str = Field(default="no_action", description="Recommended intervention")
+    urgency_level: str = Field(default="medium", description="Urgency: low/medium/high/critical")
+    reasoning: str = Field(default="", description="Agent reasoning")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0, description="Confidence in assessment")
 
 
-class StepRequest(BaseModel):
-    session_id:               str
-    patient_id:               str
-    risk_score:               float = Field(..., ge=0.0, le=1.0)
-    recommended_intervention: str
-    urgency_level:            str
-    reasoning:                str
-    confidence:               float = Field(..., ge=0.0, le=1.0)
+# ── Observation model ─────────────────────────────────────────────────────────
+
+class MoodMapObservation(Observation):
+    """Observation returned to the agent after each step."""
+
+    model_config = ConfigDict(extra="allow")
+
+    patient_data: Dict[str, Any] = Field(default_factory=dict, description="Patient behavioral signals")
+    task: str = Field(default="triage", description="Current task")
+    difficulty: str = Field(default="easy", description="Task difficulty")
+    episode_id: str = Field(default="", description="Episode identifier")
+    step: int = Field(default=0, description="Current step number")
 
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard():
-    """Serve the live ICU-style dashboard."""
-    try:
-        with open("dashboard.html", "r") as f:
-            return HTMLResponse(content=f.read())
-    except FileNotFoundError:
-        return HTMLResponse("<h1>MoodMap API is running. Dashboard not found.</h1>")
+# ── Environment ───────────────────────────────────────────────────────────────
 
+class MoodMapEnvironment(Environment):
+    """
+    Passive mental health monitoring environment.
 
-@app.get("/health")
-async def health():
-    return {"status": "ok", "service": "moodmap-openenv", "version": "1.0.0"}
+    Tasks:
+      triage              — Prioritize patients by urgency (easy)
+      risk_stratification — Classify risk tier from signals (medium)
+      early_warning       — Detect early deterioration (hard)
+    """
 
+    SUPPORTS_CONCURRENT_SESSIONS: bool = True
 
-@app.get("/info")
-async def info():
-    return {
-        "name":      "MoodMap Passive Mental Health Environment",
-        "tasks":      VALID_TASKS,
-        "difficulties": VALID_DIFFICULTIES,
-        "reward_range": [MIN_SCORE, MAX_SCORE],
-        "reward_components": ["detection", "intervention", "timeliness", "harm_avoidance"],
-        "observation_space": {
-            "type": "structured",
-            "fields": [
-                "patient_id", "age", "gender", "baseline_mood_score",
-                "signals.sleep_hours", "signals.activity_steps",
-                "signals.screen_time_hours", "signals.social_interactions",
-                "signals.heart_rate_variability", "signals.app_usage_variance",
-                "signals.typing_speed_change", "signals.location_entropy",
-                "history_days", "prior_episodes", "medication_adherence",
-            ],
-        },
-        "action_space": {
-            "type": "structured",
-            "fields": [
-                "risk_score", "recommended_intervention",
-                "urgency_level", "reasoning", "confidence",
-            ],
-        },
-    }
+    def __init__(self):
+        super().__init__()
+        self._state = State(episode_id=str(uuid.uuid4()), step_count=0)
+        self._env: Optional[MoodMapEnv] = None
+        self._task: str = "triage"
+        self._difficulty: str = "easy"
+        self._current_patient_ground_truth: Optional[Dict] = None
 
+    # ── Reset ────────────────────────────────────────────────────────────────
 
-@app.post("/reset")
-async def reset(req: Optional[ResetRequest] = Body(default=None)):
-    # If no body was sent, use all defaults
-    if req is None:
-        req = ResetRequest()
+    def reset(
+        self,
+        seed: Optional[int] = None,
+        episode_id: Optional[str] = None,
+        **kwargs: Any,
+    ) -> MoodMapObservation:
+        task = str(kwargs.get("task", "triage")).lower().strip()
+        difficulty = str(kwargs.get("difficulty", "easy")).lower().strip()
 
-    # Normalise and validate task / difficulty
-    task       = (req.task or "triage").lower().strip()
-    difficulty = (req.difficulty or "easy").lower().strip()
-    max_steps  = req.max_steps if req.max_steps is not None else 5
+        valid_tasks = ["triage", "risk_stratification", "early_warning"]
+        valid_diffs = ["easy", "medium", "hard"]
+        if task not in valid_tasks:
+            task = "triage"
+        if difficulty not in valid_diffs:
+            difficulty = "easy"
 
-    if task not in VALID_TASKS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid task '{task}'. Must be one of {VALID_TASKS}.",
-        )
-    if difficulty not in VALID_DIFFICULTIES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid difficulty '{difficulty}'. Must be one of {VALID_DIFFICULTIES}.",
-        )
+        self._task = task
+        self._difficulty = difficulty
+        self._env = MoodMapEnv(task=task, difficulty=difficulty, max_steps=5)
+        result = self._env.reset()
+        
+        # Store ground truth for grading
+        if self._env._current_patient:
+            self._current_patient_ground_truth = self._env._current_patient["ground_truth"]
 
-    env = MoodMapEnv(task=task, difficulty=difficulty, max_steps=max_steps)
-    state = env.reset()
-    session_id = f"sess-{uuid.uuid4().hex[:12]}"
-    _sessions[session_id] = env
-    return {"session_id": session_id, **state}
+        ep_id = episode_id or result["episode_id"]
+        self._state = State(episode_id=ep_id, step_count=0)
 
-
-@app.post("/step")
-async def step(req: StepRequest):
-    env = _sessions.get(req.session_id)
-    if env is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Session '{req.session_id}' not found. Call /reset first.",
+        return MoodMapObservation(
+            patient_data=result["observation"],
+            task=task,
+            difficulty=difficulty,
+            episode_id=ep_id,
+            step=0,
+            done=False,
+            reward=None,
         )
 
-    # Clamp risk_score and confidence to (0.05, 0.95) before building the action
-    safe_risk_score = _clamp_score(req.risk_score)
-    safe_confidence = _clamp_score(req.confidence)
+    # ── Step ─────────────────────────────────────────────────────────────────
 
-    action = AgentAction(
-        patient_id=req.patient_id,
-        risk_score=safe_risk_score,
-        recommended_intervention=req.recommended_intervention,
-        urgency_level=req.urgency_level,
-        reasoning=req.reasoning,
-        confidence=safe_confidence,
-    )
+    def step(
+        self,
+        action: MoodMapAction,
+        timeout_s: Optional[float] = None,
+        **kwargs: Any,
+    ) -> MoodMapObservation:
+        if self._env is None:
+            self.reset()
 
-    result = env.step(action)
+        # Clamp floats to safe range
+        risk_score = _clamp(float(action.risk_score))
+        confidence = _clamp(float(action.confidence))
 
-    # Run task-specific grader — grade() returns a float in (0.05, 0.95)
-    grader_score: float = grade(
-        task=env.task,
-        action=action.model_dump(),
-        ground_truth={
-            "true_risk":          result["reward_breakdown"].get("true_risk", safe_risk_score),
-            "ideal_intervention": result["reward_breakdown"].get("ideal_intervention", req.recommended_intervention),
-        },
-    )
+        # Normalise urgency
+        urgency = str(action.urgency_level).lower().strip()
+        if urgency not in {"low", "medium", "high", "critical"}:
+            urgency = "medium"
 
-    # Safety clamp on grader output (should already be clamped, but be defensive)
-    result["grader_score"] = _clamp_score(grader_score)
+        agent_action = _AgentAction(
+            patient_id=str(action.patient_id),
+            risk_score=risk_score,
+            recommended_intervention=str(action.recommended_intervention),
+            urgency_level=urgency,
+            reasoning=str(action.reasoning),
+            confidence=confidence,
+        )
 
-    # Final safety clamp on main reward
-    result["reward"] = _clamp_score(result["reward"])
+        result = self._env.step(agent_action)
+        
+        # Get ground truth for grader
+        ground_truth = self._current_patient_ground_truth or {
+            "true_risk": result["reward_breakdown"].get("true_risk", risk_score),
+            "ideal_intervention": result["reward_breakdown"].get(
+                "ideal_intervention", action.recommended_intervention
+            ),
+        }
+        
+        # Update ground truth for next step
+        if self._env._current_patient:
+            self._current_patient_ground_truth = self._env._current_patient["ground_truth"]
 
-    if result["done"]:
-        result["episode_summary"] = env.get_episode_summary()
-        del _sessions[req.session_id]
+        # Compute grader score based on task
+        action_dict = agent_action.model_dump()
+        
+        if self._task == "triage":
+            grader_score = grade_triage(action_dict, ground_truth)
+        elif self._task == "risk_stratification":
+            grader_score = grade_risk_stratification(action_dict, ground_truth)
+        elif self._task == "early_warning":
+            grader_score = grade_early_warning(action_dict, ground_truth)
+        else:
+            grader_score = 0.5
+            
+        grader_score = _clamp(float(grader_score))
 
-    return result
+        reward = _clamp(float(result["reward"]))
+        self._state.step_count += 1
+
+        next_obs = result.get("next_observation", result["observation"])
+
+        return MoodMapObservation(
+            patient_data=next_obs,
+            task=self._env.task,
+            difficulty=self._env.difficulty,
+            episode_id=result["episode_id"],
+            step=result["step"],
+            done=result["done"],
+            reward=reward,
+            metadata={
+                "grader_score": grader_score,
+                "reward_breakdown": result["reward_breakdown"],
+            },
+        )
+
+    # ── State ─────────────────────────────────────────────────────────────────
+
+    @property
+    def state(self) -> State:
+        return self._state
+
+    # ── Metadata ──────────────────────────────────────────────────────────────
+
+    def get_metadata(self) -> EnvironmentMetadata:
+        return EnvironmentMetadata(
+            name="MoodMap Passive Mental Health Environment",
+            description=(
+                "An RL environment where an LLM agent analyzes behavioral signals "
+                "(sleep, activity, screen time, HRV, social interactions) collected "
+                "passively from smartphones and wearables to assess patient risk and "
+                "recommend appropriate interventions."
+            ),
+            version="1.0.0",
+            author="MoodMap Team",
+        )
 
 
-@app.get("/sessions")
-async def list_sessions():
-    return {
-        "active_sessions": len(_sessions),
-        "session_ids":     list(_sessions.keys()),
-    }
+# ── App ───────────────────────────────────────────────────────────────────────
+# create_app registers: /reset /step /state /schema /metadata /health /ws /mcp
+
+app = create_app(
+    MoodMapEnvironment,
+    MoodMapAction,
+    MoodMapObservation,
+    env_name="moodmap",
+    max_concurrent_envs=4,
+)
+
+
+def main(host: str = "0.0.0.0", port: int = 7860):
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)
+
+
+if __name__ == "__main__":
+    main()

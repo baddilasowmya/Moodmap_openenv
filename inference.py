@@ -5,7 +5,7 @@ Runs an LLM agent through the MoodMap environment using the OpenAI client.
 Required env vars:
   API_BASE_URL  — e.g. https://api-inference.huggingface.co/v1
   MODEL_NAME    — e.g. Qwen/Qwen2.5-72B-Instruct
-  HF_TOKEN      — your Hugging Face token
+  HF_TOKEN      — your Hugging Face token (NO DEFAULT)
   
 Optional:
   LOCAL_IMAGE_NAME — if using from_docker_image()
@@ -19,10 +19,14 @@ from openai import OpenAI
 from moodmap_env import MoodMapEnv
 from graders import grade
 
-# ── Environment variables (defaults for API_BASE_URL and MODEL_NAME only) ──────
-API_BASE_URL = os.getenv("API_BASE_URL", "<your-active-api-base-url>")
-MODEL_NAME   = os.getenv("MODEL_NAME",   "<your-active-model-name>")
-HF_TOKEN     = os.getenv("HF_TOKEN")          # NO default — must be set
+# ── Environment variables (with sensible defaults for API_BASE_URL and MODEL_NAME) ──────
+API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
+MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+HF_TOKEN     = os.getenv("HF_TOKEN")          # NO default — must be set in environment
+
+# Check if HF_TOKEN is set (but don't fail hard - allow demo mode)
+if not HF_TOKEN:
+    print("[WARN] HF_TOKEN not set. LLM calls will fail. Set HF_TOKEN as a secret in Hugging Face Spaces.", flush=True)
 
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")  # Optional
 
@@ -90,6 +94,16 @@ Assess this patient's mental health risk and recommend an appropriate interventi
 
 
 def call_llm(prompt: str, max_retries: int = 3) -> dict:
+    # If HF_TOKEN not set, return a fallback action immediately
+    if not HF_TOKEN:
+        return {
+            "risk_score": 0.50,
+            "recommended_intervention": "wellness_check",
+            "urgency_level": "medium",
+            "reasoning": "HF_TOKEN not set. Using safe default action.",
+            "confidence": 0.10,
+        }
+    
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
