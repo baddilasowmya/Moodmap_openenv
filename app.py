@@ -256,10 +256,6 @@ TASKS = [
             "Prioritize patients by urgency based on clear behavioral signal patterns. "
             "Match urgency_level (low/medium/high/critical) to true patient risk."
         ),
-        "grader": "graders.grade_triage",
-        "has_grader": True,
-        "score": 0.5,           # strictly between 0 and 1 — required by OpenEnv validator
-        "score_range": [0.06, 0.94],
         "real_world_context": "1 in 5 adults worldwide experience a mental health condition",
     },
     {
@@ -272,10 +268,6 @@ TASKS = [
             "Classify patients into risk tiers using noisy, partially conflicting signals. "
             "Requires nuanced interpretation of behavioral drift patterns."
         ),
-        "grader": "graders.grade_risk_stratification",
-        "has_grader": True,
-        "score": 0.5,           # strictly between 0 and 1 — required by OpenEnv validator
-        "score_range": [0.06, 0.94],
         "real_world_context": "Early detection reduces mental health crisis hospitalizations by 40%",
     },
     {
@@ -288,10 +280,6 @@ TASKS = [
             "Detect early deterioration before it becomes critical. High noise, "
             "limited history. False negatives severely penalized."
         ),
-        "grader": "graders.grade_early_warning",
-        "has_grader": True,
-        "score": 0.5,           # strictly between 0 and 1 — required by OpenEnv validator
-        "score_range": [0.06, 0.94],
         "real_world_context": "Passive sensing detects depression onset 2-3 weeks before clinical presentation",
     },
 ]
@@ -337,44 +325,30 @@ async def get_tasks():
 
 @app.get("/grader")
 async def get_grader():
-    """
-    Normalized score strictly between 0 and 1 (never 0.0 or 1.0).
-    Score = 60% mean_reward + 40% last_grader_score, clamped to [0.06, 0.94].
-    """
+    """Normalized score strictly between 0 and 1. Score = 80% grader + 20% speed."""
     if _env is None or _episode_steps == 0:
-        # Return a valid mid-range score even before any steps
         safe_score = 0.5
         return {
             "score": safe_score,
             "task": _task,
             "scenario": _task,
-            "difficulty": _difficulty,
             "steps_completed": 0,
             "episode_done": False,
-            "mean_reward": safe_score,
-            "last_grader_score": safe_score,
             "note": "No steps completed yet — returning safe baseline score of 0.5",
         }
 
-    mean_reward = _clamp(_episode_reward_sum / max(1, _episode_steps))
-    score = _clamp(0.6 * mean_reward + 0.4 * _last_grader_score)
-
-    # Extra safety: ensure score is NEVER exactly 0.0 or 1.0
-    # (Python float arithmetic shouldn't produce these given our bounds, but be safe)
-    if score <= 0.0:
-        score = MIN_SCORE
-    if score >= 1.0:
-        score = MAX_SCORE
+    mean_reward = _episode_reward_sum / max(1, _episode_steps)
+    score = round(0.8 * mean_reward + 0.2 * _last_grader_score, 4)
+    score = max(0.0001, min(0.9999, score))
 
     return {
         "score": score,
         "task": _task,
         "scenario": _task,
-        "difficulty": _difficulty,
         "steps_completed": _episode_steps,
         "episode_done": _episode_done,
-        "mean_reward": round(mean_reward, 4),
-        "last_grader_score": round(_last_grader_score, 4),
+        "mean_reward": round(max(0.0001, min(0.9999, mean_reward)), 4),
+        "last_grader_score": round(max(0.0001, min(0.9999, _last_grader_score)), 4),
     }
 
 
