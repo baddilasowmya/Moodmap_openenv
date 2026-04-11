@@ -5,10 +5,12 @@ Runs an LLM agent through the MoodMap environment using the OpenAI client.
 Required env vars:
   API_BASE_URL  — e.g. https://api-inference.huggingface.co/v1
   MODEL_NAME    — e.g. Qwen/Qwen2.5-72B-Instruct
-  HF_TOKEN      — your Hugging Face token (NO DEFAULT)
-  
-Optional:
-  LOCAL_IMAGE_NAME — if using from_docker_image()
+  HF_TOKEN      — your Hugging Face token
+
+Logs follow the required hackathon format:
+  [START] task=<task> env=moodmap model=<model>
+  [STEP] step=<n> action=<json> reward=<r> done=<bool> error=<null|msg>
+  [END] success=<bool> steps=<n> score=<score> rewards=<r1,r2,...>
 """
 import os
 import sys
@@ -17,93 +19,87 @@ import time
 
 from openai import OpenAI
 from moodmap_env import MoodMapEnv
+from moodmap_env.models import AgentAction
 from graders import grade
 
-# ── Environment variables (with sensible defaults for API_BASE_URL and MODEL_NAME) ──────
+# ── Environment variables ─────────────────────────────────────
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN     = os.getenv("HF_TOKEN")          # NO default — must be set in environment
+HF_TOKEN     = os.getenv("HF_TOKEN")
 
-# Check if HF_TOKEN is set (but don't fail hard - allow demo mode)
 if not HF_TOKEN:
-    print("[WARN] HF_TOKEN not set. LLM calls will fail. Set HF_TOKEN as a secret in Hugging Face Spaces.", flush=True)
+    print("[WARN] HF_TOKEN not set. Using fallback actions.", flush=True)
 
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")  # Optional
+client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "dummy")
 
-# All LLM calls use the OpenAI client configured via these variables
-client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=HF_TOKEN,
-)
+ENV_NAME = "moodmap"
 
+# ── Required hackathon log format ─────────────────────────────
+def log_start(task, model):
+    print(f"[START] task={task} env={ENV_NAME} model={model}", flush=True)
+
+def log_step(step, action, reward, done, error=None):
+    action_str = json.dumps(action) if isinstance(action, dict) else str(action)
+    print(f"[STEP] step={step} action={action_str} reward={reward:.2f} done={str(done).lower()} error={error or 'null'}", flush=True)
+
+def log_end(success, steps, score, rewards):
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.4f} rewards={rewards_str}", flush=True)
+
+
+# ── System prompt ─────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a clinical AI assistant specialized in passive mental health monitoring.
 
-You analyze behavioral signals from wearables and smartphones to assess patient mental health risk.
+Analyze behavioral signals from wearables and smartphones to assess patient mental health risk.
 
-For each patient observation you receive, you must:
-1. Estimate a risk score between 0.05 and 0.95 (never exactly 0 or 1)
-2. Recommend an appropriate intervention
-3. Assess urgency level
-4. Provide clear reasoning
-
-Available interventions:
-- no_action
-- psychoeducation_materials
-- peer_support_referral
-- therapist_consultation
-- crisis_hotline_referral
-- emergency_services
-- medication_review
-- wellness_check
-
-Urgency levels: low, medium, high, critical
-
-CRITICAL: Always respond with ONLY valid JSON in this exact format:
+For each patient, respond with ONLY valid JSON in this exact format:
 {
   "risk_score": 0.45,
   "recommended_intervention": "peer_support_referral",
   "urgency_level": "medium",
-  "reasoning": "Patient shows declining sleep and reduced social interaction over 14 days...",
+  "reasoning": "Brief reasoning here",
   "confidence": 0.78
 }
 
-risk_score and confidence must be strictly between 0.05 and 0.95."""
+risk_score and confidence must be strictly between 0.05 and 0.95.
+urgency_level: low, medium, high, or critical
+recommended_intervention: no_action, psychoeducation_materials, peer_support_referral,
+  therapist_consultation, medication_review, wellness_check, crisis_hotline_referral, emergency_services"""
 
 
 def build_prompt(obs: dict) -> str:
     signals = obs.get("signals", {})
     med = obs.get("medication_adherence")
     med_str = f"{med:.0%}" if med else "not applicable"
-    return f"""Patient ID: {obs['patient_id']}
-Age: {obs['age']} | Gender: {obs['gender']}
-Task: {obs['task']} | Difficulty: {obs['difficulty']}
-History: {obs['history_days']} days | Prior episodes: {obs['prior_episodes']}
-Baseline mood: {obs['baseline_mood_score']:.2f} | Medication adherence: {med_str}
-
-Behavioral Signals (last 7 days):
-  Sleep: {signals.get('sleep_hours', '?'):.1f} hrs/night
-  Activity: {signals.get('activity_steps', '?'):,} steps/day
-  Screen time: {signals.get('screen_time_hours', '?'):.1f} hrs/day
-  Social interactions: {signals.get('social_interactions', '?')}/week
-  HRV: {signals.get('heart_rate_variability', '?'):.1f} ms
-  App usage variance: {signals.get('app_usage_variance', '?'):.3f}
-  Typing speed change: {signals.get('typing_speed_change', '?'):+.3f}
-  Location entropy: {signals.get('location_entropy', '?'):.3f}
-
-Assess this patient's mental health risk and recommend an appropriate intervention."""
+    return (
+        f"Patient ID: {obs['patient_id']}\n"
+        f"Age: {obs['age']} | Gender: {obs['gender']}\n"
+        f"Task: {obs['task']} | Difficulty: {obs['difficulty']}\n"
+        f"History: {obs['history_days']} days | Prior episodes: {obs['prior_episodes']}\n"
+        f"Baseline mood: {obs['baseline_mood_score']:.2f} | Medication adherence: {med_str}\n\n"
+        f"Behavioral Signals (last 7 days):\n"
+        f"  Sleep: {signals.get('sleep_hours', 0):.1f} hrs/night\n"
+        f"  Activity: {signals.get('activity_steps', 0):,} steps/day\n"
+        f"  Screen time: {signals.get('screen_time_hours', 0):.1f} hrs/day\n"
+        f"  Social interactions: {signals.get('social_interactions', 0)}/week\n"
+        f"  HRV: {signals.get('heart_rate_variability', 0):.1f} ms\n"
+        f"  App usage variance: {signals.get('app_usage_variance', 0):.3f}\n"
+        f"  Typing speed change: {signals.get('typing_speed_change', 0):+.3f}\n"
+        f"  Location entropy: {signals.get('location_entropy', 0):.3f}\n\n"
+        f"Assess this patient's mental health risk and recommend an appropriate intervention."
+    )
 
 
 def call_llm(prompt: str, max_retries: int = 3) -> dict:
-    # If HF_TOKEN not set, return a fallback action immediately
     if not HF_TOKEN:
         return {
             "risk_score": 0.50,
             "recommended_intervention": "wellness_check",
             "urgency_level": "medium",
-            "reasoning": "HF_TOKEN not set. Using safe default action.",
+            "reasoning": "HF_TOKEN not set. Using safe default.",
             "confidence": 0.10,
         }
-    
+
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
@@ -116,141 +112,95 @@ def call_llm(prompt: str, max_retries: int = 3) -> dict:
                 temperature=0.2,
             )
             raw = response.choices[0].message.content.strip()
-            # Strip any markdown fences
             raw = raw.replace("```json", "").replace("```", "").strip()
             action = json.loads(raw)
-
-            # Validate and clamp risk_score & confidence
             action["risk_score"] = max(0.05, min(0.95, float(action.get("risk_score", 0.5))))
             action["confidence"] = max(0.05, min(0.95, float(action.get("confidence", 0.5))))
             return action
         except Exception as e:
-            print(f"[WARN] LLM call attempt {attempt+1} failed: {e}", flush=True)
             if attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
             else:
-                # Fallback action
                 return {
                     "risk_score": 0.50,
                     "recommended_intervention": "wellness_check",
                     "urgency_level": "medium",
-                    "reasoning": f"LLM call failed after {max_retries} attempts. Using safe default.",
+                    "reasoning": f"LLM failed after {max_retries} attempts.",
                     "confidence": 0.10,
                 }
 
 
-def run_episode(task: str = "triage", difficulty: str = "easy", max_steps: int = 5):
+def run_episode(task: str = "triage", difficulty: str = "easy", max_steps: int = 5) -> dict:
     env = MoodMapEnv(task=task, difficulty=difficulty, max_steps=max_steps)
 
-    # ── [START] ──────────────────────────────────────────────────────────────
-    print("[START]", flush=True)
-    print(json.dumps({"task": task, "difficulty": difficulty, "max_steps": max_steps}), flush=True)
+    log_start(task, MODEL_NAME)
 
     state = env.reset()
-    episode_id = state["episode_id"]
-    total_reward = 0.0
-    step_num = 0
-
     obs = state["observation"]
 
-    while True:
+    step_num = 0
+    rewards = []
+    done = False
+
+    while not done:
         step_num += 1
         prompt = build_prompt(obs)
-        action_dict = call_llm(prompt)
 
-        # Build action with patient_id
-        action_dict["patient_id"] = obs["patient_id"]
+        error = None
+        try:
+            action_dict = call_llm(prompt)
+            action_dict["patient_id"] = obs["patient_id"]
+            action = AgentAction(**action_dict)
+            result = env.step(action)
 
-        # ── [STEP] ─────────────────────────────────────────────────────────
-        print("[STEP]", flush=True)
-        print(json.dumps({
-            "step": step_num,
-            "patient_id": obs["patient_id"],
-            "task": task,
-            "difficulty": difficulty,
-            "action": {
+            reward = result["reward"]
+            done = result["done"]
+            rewards.append(reward)
+
+            log_action = {
                 "risk_score": action_dict["risk_score"],
                 "recommended_intervention": action_dict["recommended_intervention"],
                 "urgency_level": action_dict["urgency_level"],
-                "confidence": action_dict["confidence"],
             }
-        }), flush=True)
+            log_step(step_num, log_action, reward, done)
 
-        from moodmap_env.models import AgentAction
-        action = AgentAction(**action_dict)
-        result = env.step(action)
+            if not done:
+                obs = result.get("next_observation", obs)
 
-        reward = result["reward"]
-        total_reward += reward
-
-        print(json.dumps({
-            "step": step_num,
-            "reward": reward,
-            "breakdown": result["reward_breakdown"],
-            "done": result["done"],
-        }), flush=True)
-
-        if result["done"]:
-            obs = None
+        except Exception as e:
+            error = str(e)
+            log_step(step_num, {}, 0.0, True, error=error)
             break
-        else:
-            obs = result.get("next_observation", obs)
 
     summary = env.get_episode_summary()
+    total_reward = summary.get("total_reward", sum(rewards))
+    mean_reward  = summary.get("mean_reward", total_reward / max(step_num, 1))
 
-    # ── [END] ─────────────────────────────────────────────────────────────
-    print("[END]", flush=True)
-    print(json.dumps({
-        "episode_id": episode_id,
-        "task": task,
-        "difficulty": difficulty,
-        "total_reward": summary.get("total_reward", round(total_reward, 4)),
-        "mean_reward": summary.get("mean_reward", round(total_reward / max(step_num, 1), 4)),
-        "steps": step_num,
-    }), flush=True)
+    score = max(0.0001, min(0.9999, mean_reward))
+    success = score > 0.5
 
+    log_end(success, step_num, score, rewards)
     return summary
 
 
-def run_all_tasks():
-    """Run through all task/difficulty combinations."""
-    configs = [
-        ("triage", "easy"),
-        ("triage", "medium"),
-        ("risk_stratification", "easy"),
-        ("risk_stratification", "medium"),
-        ("risk_stratification", "hard"),
-        ("early_warning", "medium"),
-        ("early_warning", "hard"),
+def main():
+    tasks = [
+        ("triage",              "easy",   5),
+        ("risk_stratification", "medium", 5),
+        ("early_warning",       "hard",   5),
     ]
 
-    all_results = []
-    for task, difficulty in configs:
-        print(f"\n{'='*60}", flush=True)
-        print(f"Running: {task} / {difficulty}", flush=True)
-        print('='*60, flush=True)
-        result = run_episode(task=task, difficulty=difficulty, max_steps=5)
-        all_results.append(result)
+    scores = []
+    for task, difficulty, max_steps in tasks:
+        result = run_episode(task=task, difficulty=difficulty, max_steps=max_steps)
+        mean = result.get("mean_reward", 0.0)
+        scores.append(max(0.0001, min(0.9999, mean)))
         time.sleep(0.5)
 
-    print("\n\n" + "="*60, flush=True)
-    print("ALL EPISODES COMPLETE", flush=True)
-    print("="*60, flush=True)
-    for r in all_results:
-        print(f"  {r.get('task','?'):25s} {r.get('difficulty','?'):8s}  mean={r.get('mean_reward','?'):.4f}  total={r.get('total_reward','?'):.4f}", flush=True)
+    avg = sum(scores) / len(scores)
+    print(f"\n[SUMMARY] average_score={avg:.4f} scores={','.join(f'{s:.4f}' for s in scores)}", flush=True)
+    print(f"[IMPACT]  MoodMap agent assessed mental health risk across all 3 task scenarios", flush=True)
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="MoodMap inference runner")
-    parser.add_argument("--task", default="triage", choices=["triage", "risk_stratification", "early_warning"])
-    parser.add_argument("--difficulty", default="easy", choices=["easy", "medium", "hard"])
-    parser.add_argument("--steps", type=int, default=5)
-    parser.add_argument("--all", action="store_true", help="Run all task/difficulty combos")
-    args = parser.parse_args()
-
-    if args.all:
-        run_all_tasks()
-    else:
-        run_episode(task=args.task, difficulty=args.difficulty, max_steps=args.steps)
-    #done
+    main()

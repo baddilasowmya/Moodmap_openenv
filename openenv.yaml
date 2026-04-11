@@ -34,14 +34,29 @@ endpoints:
     method: GET
     path: /baseline
     description: Run median baseline agent on all 3 tasks
+  metadata:
+    method: GET
+    path: /metadata
+    description: Environment name and description
+  schema:
+    method: GET
+    path: /schema
+    description: Action, observation, and state schemas
+  mcp:
+    method: POST
+    path: /mcp
+    description: JSON-RPC 2.0 endpoint for MCP compatibility
 
 tasks:
   - id: triage
     scenario: triage
     max_steps: 5
+    grader: /grader
   - id: risk_stratification
     scenario: risk_stratification
     max_steps: 5
+    grader: /grader
   - id: early_warning
     scenario: early_warning
     max_steps: 5
+    grader: /grader
