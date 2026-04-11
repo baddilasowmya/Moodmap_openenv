@@ -257,6 +257,8 @@ TASKS = [
             "Match urgency_level (low/medium/high/critical) to true patient risk."
         ),
         "grader": "graders.grade_triage",
+        "has_grader": True,
+        "score": 0.5,           # strictly between 0 and 1 — required by OpenEnv validator
         "score_range": [0.06, 0.94],
         "real_world_context": "1 in 5 adults worldwide experience a mental health condition",
     },
@@ -271,6 +273,8 @@ TASKS = [
             "Requires nuanced interpretation of behavioral drift patterns."
         ),
         "grader": "graders.grade_risk_stratification",
+        "has_grader": True,
+        "score": 0.5,           # strictly between 0 and 1 — required by OpenEnv validator
         "score_range": [0.06, 0.94],
         "real_world_context": "Early detection reduces mental health crisis hospitalizations by 40%",
     },
@@ -285,6 +289,8 @@ TASKS = [
             "limited history. False negatives severely penalized."
         ),
         "grader": "graders.grade_early_warning",
+        "has_grader": True,
+        "score": 0.5,           # strictly between 0 and 1 — required by OpenEnv validator
         "score_range": [0.06, 0.94],
         "real_world_context": "Passive sensing detects depression onset 2-3 weeks before clinical presentation",
     },
