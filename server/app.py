@@ -1,5 +1,6 @@
 """
 Server entry point for MoodMap OpenEnv deployment.
+Imports and re-exports the FastAPI app from the root app.py.
 """
 import sys
 import os

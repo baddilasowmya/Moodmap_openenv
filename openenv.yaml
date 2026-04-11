@@ -13,7 +13,7 @@ endpoints:
   reset:
     method: POST
     path: /reset
-    description: Start a new episode. task: triage | risk_stratification | early_warning
+    description: Start a new episode. task/scenario: triage | risk_stratification | early_warning
   step:
     method: POST
     path: /step
@@ -25,23 +25,56 @@ endpoints:
   tasks:
     method: GET
     path: /tasks
-    description: List all 3 tasks and action schema
+    description: List all 3 tasks with grader info and action schema
   grader:
     method: GET
     path: /grader
-    description: Normalized score strictly between 0 and 1
+    description: Normalized score strictly between 0 and 1 (never 0.0 or 1.0)
   baseline:
     method: GET
     path: /baseline
     description: Run median baseline agent on all 3 tasks
+  metadata:
+    method: GET
+    path: /metadata
+    description: Environment name and description
+  schema:
+    method: GET
+    path: /schema
+    description: Action, observation, and state schemas
+  mcp:
+    method: POST
+    path: /mcp
+    description: JSON-RPC 2.0 endpoint for MCP compatibility
 
 tasks:
   - id: triage
     scenario: triage
+    difficulty: easy
     max_steps: 5
+    grader: graders.grade_triage
+    score_range: [0.06, 0.94]
   - id: risk_stratification
     scenario: risk_stratification
+    difficulty: medium
     max_steps: 5
+    grader: graders.grade_risk_stratification
+    score_range: [0.06, 0.94]
   - id: early_warning
     scenario: early_warning
+    difficulty: hard
     max_steps: 5
+    grader: graders.grade_early_warning
+    score_range: [0.06, 0.94]
+
+reward:
+  range: [0.06, 0.94]
+  components:
+    - name: detection
+      description: How close is the predicted risk score to the true risk?
+    - name: intervention
+      description: Is the recommended intervention appropriate for the risk level?
+    - name: timeliness
+      description: Does the urgency level match the true risk?
+    - name: harm_avoidance
+      description: Penalizes dangerous errors (false negatives for high-risk patients)
