@@ -53,11 +53,15 @@ def generate_patient(
     task: str = None,
     difficulty: str = None,
     true_risk: float = None,
+    seed: int = None,
 ) -> dict:
     """
     Returns a (PatientObservation, ground_truth) tuple dict.
     ground_truth contains the hidden true_risk and ideal_intervention.
+    Pass seed for reproducible patient generation.
     """
+    if seed is not None:
+        random.seed(seed)
     task = task or random.choice(TASKS)
     difficulty = difficulty or random.choice(list(DIFFICULTY_CONFIG.keys()))
     cfg = DIFFICULTY_CONFIG[difficulty]

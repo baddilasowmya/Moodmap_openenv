@@ -25,10 +25,11 @@ from graders import grade
 # ── Environment variables ─────────────────────────────────────
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api-inference.huggingface.co/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-HF_TOKEN     = os.getenv("HF_TOKEN")
+# Accept OPENAI_API_KEY (required by hackathon spec) or HF_TOKEN as fallback
+HF_TOKEN     = os.getenv("OPENAI_API_KEY") or os.getenv("HF_TOKEN")
 
 if not HF_TOKEN:
-    print("[WARN] HF_TOKEN not set. Using fallback actions.", flush=True)
+    print("[WARN] Neither OPENAI_API_KEY nor HF_TOKEN set. Using fallback actions.", flush=True)
 
 client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN or "dummy")
 
